@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File
 from pathlib import Path
 import shutil
 
-router = APIRouter()
+router = APIRouter(prefix="/upload", tags=["Upload"])
 
 UPLOAD_DIR = Path("data_pipeline/input_files")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
