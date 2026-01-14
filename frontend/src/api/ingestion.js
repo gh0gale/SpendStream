@@ -27,3 +27,19 @@ export async function uploadFile(file) {
 
   return res.json();
 }
+
+export async function triggerEmailIngestion() {
+  const res = await fetch(
+    `${BASE_URL}/email/trigger-ingestion`,
+    { method: "POST" }
+  );
+  return res.json();
+}
+
+export async function getIngestionStatus() {
+  const res = await fetch(
+    `${BASE_URL}/email/ingestion-status`,
+    { method: "GET" }
+  );
+  return res.json();
+}
