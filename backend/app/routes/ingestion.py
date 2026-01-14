@@ -1,34 +1,27 @@
-from fastapi import APIRouter
-from datetime import datetime
-import subprocess
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
-from ..database.init import SessionLocal
-from ..models.ingestion_run import IngestionRun
+from ..database.init import get_db
+from ..services.ingestion_service import start_ingestion_run,finish_ingestion_run
 
-router = APIRouter()
 
-@router.post("/email")
-def trigger_email_ingestion():
-    db = SessionLocal()
+router = APIRouter(prefix="/ingestion", tags=["Ingestion"])
 
-    run = IngestionRun(
-        source="email",
-        status="running"
-    )
-    db.add(run)
-    db.commit()
-    db.refresh(run)
 
-    subprocess.run(
-        ["python", "-m", "data_pipeline.scripts.run_email_ingestion"],
-        shell=True
-    )
-
-    run.status = "completed"
-    run.finished_at = datetime.utcnow()
-    db.commit()
-
+@router.post("/start")
+def start_ingestion(source: str, db: Session = Depends(get_db)):
+    run = start_ingestion_run(db, source)
     return {
-        "message": "Email ingestion completed",
-        "run_id": run.id
+        "run_id": run.id,
+        "source": run.source,
+        "status": run.status
+    }
+
+
+@router.post("/finish")
+def finish_ingestion(run_id: int, db: Session = Depends(get_db)):
+    finish_ingestion_run(db, run_id)
+    return {
+        "run_id": run_id,
+        "status": "completed"
     }

@@ -1,0 +1,15 @@
+.dashboard {
+  max-width: 700px;
+  margin: 60px auto;
+  font-family: "Inter", sans-serif;
+}
+
+.dashboard h1 {
+  font-size: 28px;
+  margin-bottom: 4px;
+}
+
+.subtitle {
+  color: #666;
+  margin-bottom: 30px;
+}
