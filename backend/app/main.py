@@ -5,6 +5,8 @@ from .database.init import Base, engine
 from .routes.init import ingestion_router, upload_router
 from .routes.init import internal_files_router, internal_email_router, email_trigger_router
 
+
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="SpendStream Backend v0")

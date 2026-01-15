@@ -1,4 +1,40 @@
-input[type="file"] {
+/* input[type="file"] {
   margin-bottom: 12px;
   display: block;
+}
+ */
+
+
+.card {
+  padding: 16px;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111;
+  max-width: 320px;
+}
+
+input {
+  margin-bottom: 10px;
+}
+
+button {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 6px;
+  border: none;
+  background: #4f46e5;
+  color: white;
+  cursor: pointer;
+}
+
+button.secondary {
+  background: #222;
+  border: 1px solid #444;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }

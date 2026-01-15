@@ -16,18 +16,6 @@ export async function finishIngestion(runId) {
   return res.json();
 }
 
-export async function uploadFile(file) {
-  const formData = new FormData();
-  formData.append("file", file);
-
-  const res = await fetch(`${BASE_URL}/files/upload`, {
-    method: "POST",
-    body: formData,
-  });
-
-  return res.json();
-}
-
 export async function triggerEmailIngestion() {
   const res = await fetch(
     `${BASE_URL}/email/trigger-ingestion`,
@@ -41,5 +29,36 @@ export async function getIngestionStatus() {
     `${BASE_URL}/email/ingestion-status`,
     { method: "GET" }
   );
+  return res.json();
+}
+
+
+export const uploadFile = async (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(
+    `${BASE_URL}/upload/file`, {
+    method: "POST",
+    body: formData
+  });
+
+  if (!response.ok) {
+    throw new Error("Upload failed");
+  }
+
+  return response.json();
+};
+
+export async function runFileIngestion() {
+  const res = await fetch(
+    `${BASE_URL}/ingestion/run-files`, {
+    method: "POST"
+  });
+
+  if (!res.ok) {
+    throw new Error("File ingestion failed");
+  }
+
   return res.json();
 }

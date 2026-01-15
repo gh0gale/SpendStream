@@ -25,3 +25,22 @@ def finish_ingestion(run_id: int, db: Session = Depends(get_db)):
         "run_id": run_id,
         "status": "completed"
     }
+
+
+@router.post("/run-files")
+def run_file_ingestion(db: Session = Depends(get_db)):
+    run = start_ingestion_run(db, source="file")
+
+    import subprocess
+
+    subprocess.run(
+        ["python", "-m", "data_pipeline.scripts.run_file_ingestion"],
+        check=True
+    )
+
+    finish_ingestion_run(db, run.id)
+
+    return {
+        "run_id": run.id,
+        "status": "completed"
+    }

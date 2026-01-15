@@ -14,7 +14,7 @@ export default function EmailIngestion({ setRun }) {
       
       if (result.status === "running") {
         setMessage("Email ingestion in progress...");
-        setTimeout(pollStatus, 2000); // Poll every 2 seconds
+        setTimeout(pollStatus, 1000); // Poll every 2 seconds
       } else if (result.status === "success") {
         setMessage("✅ " + result.message);
         setError("");
