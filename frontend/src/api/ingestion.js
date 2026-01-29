@@ -1,5 +1,6 @@
 const BASE_URL = "http://localhost:8000";
 
+// Email
 export async function startIngestion(source) {
   const res = await fetch(
     `${BASE_URL}/ingestion/start?source=${source}`,
@@ -32,13 +33,13 @@ export async function getIngestionStatus() {
   return res.json();
 }
 
-
+// Files
 export const uploadFile = async (file) => {
   const formData = new FormData();
   formData.append("file", file);
 
   const response = await fetch(
-    `${BASE_URL}/upload/file`, {
+    `${BASE_URL}/file/upload`, {
     method: "POST",
     body: formData
   });
@@ -52,7 +53,7 @@ export const uploadFile = async (file) => {
 
 export async function runFileIngestion() {
   const res = await fetch(
-    `${BASE_URL}/ingestion/run-files`, {
+    `${BASE_URL}/file/trigger-ingestion`, {
     method: "POST"
   });
 

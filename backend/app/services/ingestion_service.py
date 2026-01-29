@@ -15,12 +15,14 @@ def start_ingestion_run(db: Session, source: str) -> IngestionRun:
     db.refresh(run)
     return run
 
+
 def finish_ingestion_run(db: Session, run_id: int, status: str = "completed"):
     run = db.query(IngestionRun).filter(IngestionRun.id == run_id).first()
     if run:
         run.status = status
         run.finished_at = datetime.utcnow()
         db.commit()
+
 
 def is_item_already_ingested(
     db: Session,

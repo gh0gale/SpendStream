@@ -5,10 +5,7 @@ import requests
 
 from data_pipeline.ingestion.files.csv_reader import read_csv
 from data_pipeline.ingestion.files.pdf_reader import read_pdf
-from data_pipeline.ingestion.files.file_parser import (
-    parse_csv_row,
-    parse_pdf_text
-)
+from data_pipeline.ingestion.files.file_parser import (parse_csv_row,parse_pdf_text)
 from data_pipeline.ingestion.files.file_writer import write_file_raw
 from data_pipeline.common.utils.file_hash import compute_file_hash
 

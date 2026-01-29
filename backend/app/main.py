@@ -2,8 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database.init import Base, engine
-from .routes.init import ingestion_router, upload_router
-from .routes.init import internal_files_router, internal_email_router, email_trigger_router
+from .routes.init import ingestion_router
+from .routes.init import internal_files_router, internal_email_router, email_trigger_router, file_trigger_router
 
 
 
@@ -20,11 +20,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(upload_router)
+
 app.include_router(ingestion_router)
 app.include_router(internal_files_router)
 app.include_router(internal_email_router)
 app.include_router(email_trigger_router)
+app.include_router(file_trigger_router)
 
 
 
