@@ -39,10 +39,28 @@ export default function LandingPage({ user }) {
     alert(`Uploaded! Transactions found: ${result.transactions_found}`)
   }
 
-  const handleGmailFetch = () => {
-    console.log("Fetch Gmail clicked")
+  // 🔐 CONNECT GMAIL (NEW)
+  const connectGmail = () => {
+    window.location.href = "http://127.0.0.1:8000/auth/google"
   }
 
+  // 📧 FETCH GMAIL DATA (UPDATED)
+  const handleGmailFetch = async () => {
+    const { data } = await supabase.auth.getSession()
+
+    const res = await fetch("http://127.0.0.1:8000/fetch-gmail", {
+      headers: {
+        Authorization: `Bearer ${data.session.access_token}`
+      }
+    })
+
+    const result = await res.json()
+    console.log(result)
+
+    alert(`Fetched ${result.transactions_found} transactions`)
+  }
+
+  // 🔐 TEST BACKEND AUTH (UNCHANGED)
   const testBackend = async () => {
     const { data } = await supabase.auth.getSession()
 
@@ -70,12 +88,21 @@ export default function LandingPage({ user }) {
         />
       </div>
 
+      {/* 🔐 CONNECT GMAIL */}
+      <div style={{ marginTop: 10 }}>
+        <button onClick={connectGmail}>
+          Connect Gmail
+        </button>
+      </div>
+
+      {/* 📧 FETCH GMAIL */}
       <div style={{ marginTop: 10 }}>
         <button onClick={handleGmailFetch}>
           Fetch Gmail Data
         </button>
       </div>
 
+      {/* 🔧 TEST BACKEND */}
       <div style={{ marginTop: 10 }}>
         <button onClick={testBackend}>
           Test Backend Auth
