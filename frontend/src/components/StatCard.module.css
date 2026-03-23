@@ -1,0 +1,38 @@
+.card {
+  background: var(--surface); border-radius: var(--r-lg);
+  padding: 22px 20px; position: relative; overflow: hidden;
+  border: 1px solid var(--border);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.card:hover { border-color: var(--border-mid); }
+.card.accent { border-color: var(--gold-border); }
+.card.accent:hover { border-color: rgba(212,168,83,0.36); }
+
+.topBar {
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+}
+
+.header {
+  display: flex; justify-content: space-between;
+  align-items: flex-start; margin-bottom: 14px;
+}
+.label {
+  font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono);
+  letter-spacing: 0.06em; text-transform: uppercase;
+}
+.icon { font-size: 14px; }
+.icon.gold { color: var(--gold); }
+.icon.muted { color: var(--text-tertiary); }
+
+.skeleton {
+  height: 34px; background: var(--surface-2); border-radius: var(--r-sm);
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+.value {
+  font-size: 28px; font-weight: 600; letter-spacing: -0.04em;
+  line-height: 1; margin-bottom: 6px;
+}
+.value.accent { color: var(--gold); }
+.value.normal { color: var(--text-primary); }
+.sub { font-size: 12px; color: var(--text-tertiary); font-weight: 400; }

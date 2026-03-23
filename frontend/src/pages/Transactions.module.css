@@ -1,0 +1,163 @@
+.page { min-height: 100vh; background: var(--bg); padding-bottom: 60px; }
+.inner { max-width: 1160px; margin: 0 auto; padding: 72px 24px 0; }
+
+/* Header */
+.pageHeader { margin-bottom: 22px; }
+.pageSubtitle {
+  font-size: 10px; color: var(--text-tertiary); font-family: var(--font-mono);
+  letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 5px;
+}
+.pageTitleRow {
+  display: flex; align-items: baseline; justify-content: space-between;
+  flex-wrap: wrap; gap: 8px;
+}
+.pageTitle { font-size: 22px; font-weight: 600; letter-spacing: -0.03em; }
+.chips { display: flex; gap: 16px; align-items: center; }
+.chip { display: flex; align-items: center; gap: 5px; }
+.chipLabel { font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); }
+.chipValue { font-size: 13px; font-family: var(--font-mono); color: var(--text-primary); font-weight: 500; }
+
+/* Filters */
+.filters {
+  display: flex; gap: 8px; margin-bottom: 16px;
+  flex-wrap: wrap; align-items: center;
+}
+.searchWrap { position: relative; flex: 1 1 200px; min-width: 180px; }
+.searchIcon {
+  position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+  color: var(--text-tertiary); font-size: 13px; pointer-events: none;
+}
+.searchInput {
+  width: 100%; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-md); padding: 8px 12px 8px 30px;
+  font-size: 13px; font-weight: 400; color: var(--text-primary);
+  font-family: var(--font-sans); outline: none; letter-spacing: -0.01em;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.searchInput:focus { border-color: rgba(212,168,83,0.35); box-shadow: 0 0 0 3px rgba(212,168,83,0.06); }
+.searchInput::placeholder { color: var(--text-disabled); }
+
+.catFilters { display: flex; gap: 5px; flex-wrap: wrap; }
+.catBtn {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--surface); border: 1px solid var(--border);
+  font-family: var(--font-sans); font-size: 12px; font-weight: 400;
+  padding: 5px 11px; border-radius: var(--r-sm);
+  cursor: pointer; transition: all 0.12s; letter-spacing: -0.01em;
+  color: var(--text-secondary);
+}
+.catBtn.active { font-weight: 500; }
+.catBtn:not(.active):hover { border-color: var(--border-mid); color: var(--text-primary); }
+.catDot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+
+/* Table */
+.table {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg); overflow: hidden;
+}
+.tableHead {
+  display: grid; grid-template-columns: 2fr 1.2fr 1fr 1fr 60px;
+  padding: 10px 18px; border-bottom: 1px solid var(--border);
+  background: var(--bg-3);
+}
+.thCell {
+  font-size: 10px; font-family: var(--font-mono); font-weight: 400;
+  color: var(--text-tertiary); letter-spacing: 0.07em; text-transform: uppercase;
+  display: flex; align-items: center; gap: 3px;
+  cursor: pointer; user-select: none; transition: color 0.12s;
+}
+.thCell.sorted { color: var(--gold); }
+.thCell.noSort { cursor: default; }
+.sortIcon { font-size: 9px; }
+
+/* Rows */
+.skeletonRows { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+.skeletonRow  { border-radius: var(--r-sm); animation: shimmer 1.5s infinite; }
+
+.emptyTable {
+  padding: 56px 20px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+.emptyIcon { font-size: 22px; opacity: 0.18; }
+.emptyText { font-size: 13px; color: var(--text-tertiary); }
+
+.tableRow {
+  display: grid; grid-template-columns: 2fr 1.2fr 1fr 1fr 60px;
+  padding: 13px 18px; border-bottom: 1px solid var(--border);
+  cursor: pointer; transition: background 0.1s; align-items: center;
+}
+.tableRow:last-child { border-bottom: none; }
+.tableRow:hover { background: var(--bg-3); }
+
+.merchantCol { display: flex; flex-direction: column; gap: 2px; }
+.merchantName { font-size: 13px; font-weight: 500; color: var(--text-primary); letter-spacing: -0.01em; }
+.merchantSrc  { font-size: 10px; color: var(--text-tertiary); font-family: var(--font-mono); }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 500;
+  padding: 3px 9px; border-radius: 100px;
+}
+.badgeDot { width: 4px; height: 4px; border-radius: 50%; }
+.noBadge { font-size: 10px; color: var(--text-tertiary); font-family: var(--font-mono); }
+
+.dateCell   { font-size: 12px; color: var(--text-secondary); font-family: var(--font-mono); }
+.amountCell { font-size: 13px; font-family: var(--font-mono); font-weight: 500; color: var(--text-primary); }
+.arrowCell  { text-align: right; font-size: 12px; color: var(--text-tertiary); transition: color 0.12s; }
+.tableRow:hover .arrowCell { color: var(--gold); }
+
+/* Pagination */
+.pagination {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 13px; padding: 0 2px;
+}
+.paginationInfo { font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); }
+.paginationBtns { display: flex; gap: 5px; }
+.pagBtn {
+  background: var(--surface); border: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 11px;
+  padding: 6px 13px; border-radius: var(--r-sm);
+  cursor: pointer; transition: all 0.12s; color: var(--text-secondary);
+}
+.pagBtn:hover:not(:disabled) { border-color: var(--border-mid); color: var(--text-primary); }
+.pagBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* Modal */
+.modalOverlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(6px); z-index: 500;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.modalCard {
+  background: var(--surface); border-radius: var(--r-xl);
+  padding: 28px 26px; width: 100%; max-width: 400px; position: relative;
+  box-shadow: var(--shadow-xl);
+  animation: pageIn 0.22s ease both;
+}
+.modalTopBar {
+  position: absolute; top: 0; left: 10%; right: 10%; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+}
+.modalClose {
+  position: absolute; top: 14px; right: 14px;
+  background: var(--bg-3); border: 1px solid var(--border);
+  color: var(--text-tertiary); width: 26px; height: 26px;
+  border-radius: var(--r-xs); cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  transition: color 0.12s, border-color 0.12s;
+}
+.modalClose:hover { color: var(--text-primary); border-color: var(--border-mid); }
+
+.modalMeta { margin-bottom: 20px; }
+.modalMetaLabel { font-size: 10px; font-family: var(--font-mono); color: var(--text-tertiary); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 7px; }
+.modalAmount  { font-size: 26px; font-weight: 600; letter-spacing: -0.04em; margin-bottom: 3px; }
+.modalMerchant{ font-size: 14px; color: var(--text-secondary); font-weight: 400; }
+
+.modalFields  { display: flex; flex-direction: column; gap: 7px; }
+.modalField   { display: flex; justify-content: space-between; align-items: center; padding: 9px 12px; background: var(--bg-3); border-radius: var(--r-md); }
+.modalFieldKey{ font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); }
+.modalFieldVal{ font-size: 13px; font-weight: 500; }
+
+.modalRaw { margin-top: 12px; padding: 11px 13px; background: var(--bg-3); border-radius: var(--r-md); }
+.modalRawLabel{ font-size: 10px; font-family: var(--font-mono); color: var(--text-tertiary); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px; }
+.modalRawText { font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary); word-break: break-all; line-height: 1.6; }

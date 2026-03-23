@@ -1,0 +1,119 @@
+.root {
+  min-height: 100vh; background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; position: relative; overflow: hidden;
+}
+.orb {
+  position: fixed; width: 600px; height: 600px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(212,168,83,0.06) 0%, transparent 65%);
+  top: -200px; right: -120px; pointer-events: none;
+}
+.back {
+  position: fixed; top: 22px; left: 24px;
+  background: none; border: none;
+  color: var(--text-tertiary); font-family: var(--font-sans);
+  font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 5px;
+  border-radius: var(--r-sm); padding: 6px 10px;
+  transition: color 0.15s, background 0.15s;
+}
+.back:hover { color: var(--text-primary); background: var(--surface); }
+
+.card {
+  width: 100%; max-width: 400px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-xl); padding: 36px 32px;
+  position: relative;
+  box-shadow: var(--shadow-xl);
+  animation: pageIn 0.4s cubic-bezier(0.22,1,0.36,1) both;
+}
+.topAccent {
+  position: absolute; top: 0; left: 15%; right: 15%; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+}
+
+.logoArea { text-align: center; margin-bottom: 28px; }
+.logoMark { font-size: 24px; color: var(--gold); display: block; margin-bottom: 8px; }
+.logoName  { font-size: 20px; font-weight: 600; letter-spacing: -0.03em; }
+.logoSub   { font-size: 13px; color: var(--text-secondary); margin-top: 3px; font-weight: 400; }
+
+.toggle {
+  display: flex; background: var(--bg-3);
+  border-radius: var(--r-sm); padding: 3px; margin-bottom: 24px;
+}
+.toggleBtn {
+  flex: 1; background: none; border: 1px solid transparent;
+  font-family: var(--font-sans); font-size: 13px;
+  padding: 7px 0; border-radius: 7px;
+  cursor: pointer; transition: all 0.15s; letter-spacing: -0.01em;
+}
+.toggleBtn.active {
+  background: var(--surface-2); border-color: var(--border-mid);
+  color: var(--text-primary); font-weight: 500;
+}
+.toggleBtn:not(.active) { color: var(--text-tertiary); }
+
+.form { display: flex; flex-direction: column; gap: 13px; }
+
+.fieldWrap { display: flex; flex-direction: column; gap: 5px; }
+.fieldLabel {
+  font-size: 11px; color: var(--text-tertiary);
+  font-family: var(--font-mono); letter-spacing: 0.04em;
+}
+.fieldInput {
+  width: 100%; background: var(--bg-3);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  padding: 10px 13px; font-size: 14px; font-weight: 400;
+  color: var(--text-primary); font-family: var(--font-sans);
+  outline: none; letter-spacing: -0.01em;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.fieldInput:focus {
+  border-color: rgba(212,168,83,0.4);
+  box-shadow: 0 0 0 3px rgba(212,168,83,0.07);
+}
+.fieldInput::placeholder { color: var(--text-disabled); }
+
+.errorBox {
+  background: rgba(255,69,58,0.08); border: 1px solid rgba(255,69,58,0.2);
+  border-radius: var(--r-sm); padding: 10px 13px;
+  font-size: 13px; color: var(--red);
+}
+.successBox {
+  background: rgba(50,215,75,0.08); border: 1px solid rgba(50,215,75,0.2);
+  border-radius: var(--r-sm); padding: 10px 13px;
+  font-size: 13px; color: var(--green);
+}
+
+.submitBtn {
+  margin-top: 4px; background: var(--gold); border: none;
+  color: #000; font-family: var(--font-sans);
+  font-size: 14px; font-weight: 600; letter-spacing: -0.01em;
+  padding: 12px 0; border-radius: var(--r-md);
+  cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: background 0.15s, transform 0.1s, opacity 0.15s;
+}
+.submitBtn:hover:not(:disabled) { background: var(--gold-light); transform: translateY(-1px); }
+.submitBtn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.divider {
+  display: flex; align-items: center; gap: 12px;
+  margin: 18px 0;
+}
+.dividerLine { flex: 1; height: 1px; background: var(--border); }
+.dividerText { font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); }
+
+.googleBtn {
+  width: 100%; background: var(--bg-3);
+  border: 1px solid var(--border); color: var(--text-primary);
+  font-family: var(--font-sans); font-size: 14px; font-weight: 400;
+  padding: 11px 0; border-radius: var(--r-md);
+  cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 9px;
+  transition: border-color 0.15s, background 0.15s; letter-spacing: -0.01em;
+}
+.googleBtn:hover { border-color: var(--border-mid); background: var(--surface-2); }
+
+.spinner {
+  width: 13px; height: 13px; border-radius: 50%;
+  border: 1.5px solid rgba(0,0,0,0.2); border-top-color: #000;
+  animation: spin 0.7s linear infinite;
+}
