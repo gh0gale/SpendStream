@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import UploadFile, File
 from fastapi.responses import RedirectResponse
@@ -7,10 +7,11 @@ from datetime import datetime
 import os
 import io
 import re
+import base64
 import requests
 import pandas as pd
 from dotenv import load_dotenv
-import base64 
+from etl import run_pipeline
 
 load_dotenv()
 
@@ -101,7 +102,7 @@ def parse_date_safe(date_val):
 
 
 @app.post("/upload-file")
-async def upload_file(request: Request, file: UploadFile = File(...)):
+async def upload_file(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     user = get_user_from_token(request)
 
     contents = await file.read()
@@ -160,6 +161,9 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         # FIX: use supabase_admin (service role) for DB writes — no need to
         # call set_session() with wrong arguments as was done before.
         supabase_admin.table("transactions").insert(transactions).execute()
+
+    # Trigger ETL pipeline in background so upload response is instant
+    background_tasks.add_task(run_pipeline, user.id)
 
     return {
         "message":             "File processed successfully",
@@ -326,7 +330,7 @@ def extract_body(payload):
 
 
 @app.get("/fetch-gmail")
-def fetch_gmail(request: Request):
+def fetch_gmail(request: Request, background_tasks: BackgroundTasks):
     user = get_user_from_token(request)
 
     # Get stored Gmail tokens using service role client
@@ -342,6 +346,22 @@ def fetch_gmail(request: Request):
     access_token  = row["access_token"]
     refresh_token = row.get("refresh_token")
     last_fetched  = row.get("last_fetched")
+
+    # ── Proactively validate token before doing anything ──────────────────────
+    # A quick cheap API call to check if the token is still valid.
+    # If it returns 401, refresh immediately so the rest of the fetch never fails.
+    test_res = requests.get(
+        "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+    if test_res.status_code == 401:
+        if not refresh_token:
+            raise HTTPException(
+                status_code=401,
+                detail="Gmail token expired — please reconnect Gmail"
+            )
+        print("[Gmail] Access token expired — refreshing automatically")
+        access_token = refresh_google_token(user.id, refresh_token)
 
     headers = {"Authorization": f"Bearer {access_token}"}
 
@@ -461,5 +481,8 @@ def fetch_gmail(request: Request):
     supabase_admin.table("gmail_sync").update({
         "last_fetched": datetime.utcnow().isoformat()
     }).eq("user_id", user.id).execute()
+
+    # Trigger ETL pipeline in background so fetch response is instant
+    background_tasks.add_task(run_pipeline, user.id)
 
     return {"transactions_found": len(transactions)}
