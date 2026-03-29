@@ -10,12 +10,21 @@ import re
 import base64
 import requests
 import pandas as pd
+
+
 from dotenv import load_dotenv
 from etl import run_pipeline
+
+from ml.correction_routes import router as correction_router
+
+
+
 
 load_dotenv()
 
 app = FastAPI()
+
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,6 +45,10 @@ supabase_anon = create_client(
 supabase_admin = create_client(
     os.getenv("SUPABASE_URL"),
     os.getenv("SUPABASE_SERVICE_ROLE_KEY")   # add this to your .env
+)
+
+REAL_LABELS_PATH = os.path.join(
+    os.path.dirname(__file__), "ml", "data", "real_labels.csv"
 )
 
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID")
@@ -486,3 +499,8 @@ def fetch_gmail(request: Request, background_tasks: BackgroundTasks):
     background_tasks.add_task(run_pipeline, user.id)
 
     return {"transactions_found": len(transactions)}
+
+
+app.include_router(correction_router)
+
+

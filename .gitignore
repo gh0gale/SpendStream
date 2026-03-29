@@ -28,33 +28,11 @@ Thumbs.db
 logs/
 
 # =========================
-# Database (LOCAL ONLY)
-# =========================
-backend/backend.db
-*.sqlite
-*.sqlite3
-
-# =========================
-# Credentials / Secrets
-# =========================
-data_pipeline/configs/token.json
-data_pipeline/configs/*credentials*.json
-data_pipeline/configs/*.pem
-data_pipeline/configs/*.key
-
-# =========================
-# Raw & Intermediate Data
-# =========================
-data_pipeline/storage/
-data_pipeline/input_files/
-data_pipeline/output/
-
-# =========================
 # Temporary / Runtime
 # =========================
 .tmp/
 .cache/
-dist/
+.dist/
 build/
 
 # =========================
@@ -64,12 +42,16 @@ frontend/node_modules/
 frontend/.env
 frontend/dist/
 
+
+
 # =========================
 # Jupyter / Experiments
 # =========================
 .ipynb_checkpoints/
 
 # =========================
-# Test Artifacts
+# Machine Models / Data
 # =========================
-tests/output/
+model_v2.pkl
+label_encoder_v2.pkl
+*.pkl

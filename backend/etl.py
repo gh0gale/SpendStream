@@ -4,6 +4,8 @@ import hashlib
 from datetime import datetime
 from supabase import create_client
 from dotenv import load_dotenv
+
+# NEW — same import, but now predict_batch accepts optional metadata
 from ml.categoriser import predict_batch
 
 load_dotenv()
@@ -381,21 +383,55 @@ def run_categorise_silver(user_id: str) -> int:
 
     if bronze_ids:
         bronze_res = supabase_admin.table("bronze_transactions") \
-            .select("id, receiver") \
+            .select("id, receiver, timestamp") \
             .in_("id", bronze_ids) \
             .execute()
-        bronze_map = {r["id"]: r.get("receiver", "") for r in bronze_res.data}
+        bronze_map = {r["id"]: r for r in bronze_res.data}
 
     # Build input texts: use raw bronze receiver string when available
     # (more signal than cleaned merchant name alone)
     silver_rows = uncategorised.data
+
     input_texts = [
-        bronze_map.get(row.get("bronze_id"), row.get("merchant", ""))
+        (
+            bronze_map.get(row.get("bronze_id"), {}).get("receiver")
+            or row.get("merchant", "")
+            or ""
+        )
         for row in silver_rows
     ]
 
-    # Batch predict — single vectorisation pass
-    predictions = predict_batch(input_texts)
+    amounts = [float(r.get("amount", 0) or 0) for r in silver_rows]
+
+    timestamps = [
+        (
+            bronze_map.get(r.get("bronze_id"), {}).get("timestamp")
+            or r.get("transaction_date")
+        )
+        for r in silver_rows
+    ]
+
+    receivers = [
+        (
+            bronze_map.get(r.get("bronze_id"), {}).get("receiver")
+            or r.get("merchant", "")
+            or ""
+        )
+        for r in silver_rows
+    ]
+
+    # Optional safety check
+    for i, r in enumerate(receivers):
+        if not isinstance(r, str):
+            raise ValueError(f"Receiver at index {i} is not string: {type(r)}")
+
+    predictions = predict_batch(
+        raw_texts=input_texts,
+        amounts=amounts,
+        timestamps=timestamps,
+        user_ids=[user_id] * len(silver_rows),
+        receivers=receivers,
+    )
 
     # Update each row
     categorised_count = 0

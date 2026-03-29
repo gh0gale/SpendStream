@@ -84,23 +84,99 @@
 .tableRow {
   display: grid; grid-template-columns: 2fr 1.2fr 1fr 1fr 60px;
   padding: 13px 18px; border-bottom: 1px solid var(--border);
-  cursor: pointer; transition: background 0.1s; align-items: center;
+  cursor: pointer; transition: background 0.1s, opacity 0.15s; align-items: center;
 }
 .tableRow:last-child { border-bottom: none; }
 .tableRow:hover { background: var(--bg-3); }
+.tableRow.rowSaving { opacity: 0.55; pointer-events: none; }
 
 .merchantCol { display: flex; flex-direction: column; gap: 2px; }
 .merchantName { font-size: 13px; font-weight: 500; color: var(--text-primary); letter-spacing: -0.01em; }
 .merchantSrc  { font-size: 10px; color: var(--text-tertiary); font-family: var(--font-mono); }
 
+/* Category cell — the clickable badge area */
+.categoryCell { position: relative; }
+
+.badgeBtn {
+  background: none; border: none; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center;
+}
+.badgeBtn:disabled { cursor: not-allowed; }
+.badgeBtn:not(:disabled):hover .editHint { opacity: 1; }
+
 .badge {
   display: inline-flex; align-items: center; gap: 4px;
   font-size: 11px; font-weight: 500;
   padding: 3px 9px; border-radius: 100px;
+  transition: filter 0.12s;
 }
-.badgeDot { width: 4px; height: 4px; border-radius: 50%; }
-.noBadge { font-size: 10px; color: var(--text-tertiary); font-family: var(--font-mono); }
+.badgeBtn:not(:disabled):hover .badge { filter: brightness(1.15); }
 
+.badgeDot { width: 4px; height: 4px; border-radius: 50%; }
+
+/* Small gold dot on user-corrected rows */
+.correctedDot {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--gold); margin-left: 2px; flex-shrink: 0;
+}
+
+.editHint {
+  font-size: 9px; opacity: 0; margin-left: 3px;
+  transition: opacity 0.12s; color: inherit;
+}
+
+.savingPill {
+  font-size: 10px; font-family: var(--font-mono); color: var(--text-tertiary);
+  padding: 3px 9px; border-radius: 100px; border: 1px solid var(--border);
+}
+
+.noBadge {
+  font-size: 10px; color: var(--text-tertiary); font-family: var(--font-mono);
+  cursor: pointer;
+}
+.noBadge:hover { color: var(--gold); }
+
+/* ── Inline picker (in table row) ── */
+.picker {
+  position: absolute; top: -6px; left: -8px; z-index: 100;
+  background: var(--surface); border: 1px solid var(--border-mid);
+  border-radius: var(--r-lg); padding: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+  min-width: 280px;
+  animation: pickerIn 0.14s ease both;
+}
+@keyframes pickerIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+.pickerGrid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 8px;
+}
+
+.pickerBtn {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--bg-3); border: 1px solid transparent;
+  border-radius: var(--r-sm); padding: 6px 10px;
+  font-family: var(--font-sans); font-size: 11px; font-weight: 400;
+  color: var(--text-secondary); cursor: pointer;
+  transition: all 0.1s; text-align: left;
+}
+.pickerBtn:hover { background: var(--bg-2); color: var(--text-primary); border-color: var(--border); }
+.pickerBtnActive { font-weight: 500; }
+
+.pickerDot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.pickerCheck { margin-left: auto; font-size: 10px; opacity: 0.7; }
+
+.pickerCancel {
+  width: 100%; background: none; border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 5px;
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary);
+  cursor: pointer; transition: all 0.1s;
+}
+.pickerCancel:hover { color: var(--text-primary); border-color: var(--border-mid); }
+
+/* Date / Amount / Arrow */
 .dateCell   { font-size: 12px; color: var(--text-secondary); font-family: var(--font-mono); }
 .amountCell { font-size: 13px; font-family: var(--font-mono); font-weight: 500; color: var(--text-primary); }
 .arrowCell  { text-align: right; font-size: 12px; color: var(--text-tertiary); transition: color 0.12s; }
@@ -122,7 +198,30 @@
 .pagBtn:hover:not(:disabled) { border-color: var(--border-mid); color: var(--text-primary); }
 .pagBtn:disabled { opacity: 0.35; cursor: not-allowed; }
 
-/* Modal */
+/* ── Toast ── */
+.toast {
+  position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--border-mid);
+  border-radius: var(--r-lg); padding: 10px 18px;
+  font-size: 12px; font-family: var(--font-mono);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  z-index: 600; animation: toastIn 0.2s ease both;
+  white-space: nowrap;
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.toast_success { color: var(--text-primary); }
+.toast_error   { color: #e57373; border-color: rgba(229,115,115,0.3); }
+.toastDot {
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+}
+.toast_success .toastDot { background: #81c784; }
+.toast_error   .toastDot { background: #e57373; }
+
+/* ── Modal ── */
 .modalOverlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.7);
   backdrop-filter: blur(6px); z-index: 500;
@@ -136,7 +235,6 @@
 }
 .modalTopBar {
   position: absolute; top: 0; left: 10%; right: 10%; height: 1px;
-  background: linear-gradient(90deg, transparent, var(--gold), transparent);
 }
 .modalClose {
   position: absolute; top: 14px; right: 14px;
@@ -149,15 +247,65 @@
 .modalClose:hover { color: var(--text-primary); border-color: var(--border-mid); }
 
 .modalMeta { margin-bottom: 20px; }
-.modalMetaLabel { font-size: 10px; font-family: var(--font-mono); color: var(--text-tertiary); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 7px; }
-.modalAmount  { font-size: 26px; font-weight: 600; letter-spacing: -0.04em; margin-bottom: 3px; }
-.modalMerchant{ font-size: 14px; color: var(--text-secondary); font-weight: 400; }
+.modalMetaLabel {
+  font-size: 10px; font-family: var(--font-mono); color: var(--text-tertiary);
+  letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 7px;
+}
+.modalAmount   { font-size: 26px; font-weight: 600; letter-spacing: -0.04em; margin-bottom: 3px; }
+.modalMerchant { font-size: 14px; color: var(--text-secondary); font-weight: 400; }
 
 .modalFields  { display: flex; flex-direction: column; gap: 7px; }
-.modalField   { display: flex; justify-content: space-between; align-items: center; padding: 9px 12px; background: var(--bg-3); border-radius: var(--r-md); }
-.modalFieldKey{ font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); }
-.modalFieldVal{ font-size: 13px; font-weight: 500; }
+.modalField   {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 9px 12px; background: var(--bg-3); border-radius: var(--r-md);
+}
+.modalFieldKey { font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); }
+.modalFieldVal { font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+
+.modalCorrectedTag {
+  font-size: 9px; font-family: var(--font-mono); font-weight: 400;
+  color: var(--gold); border: 1px solid rgba(212,168,83,0.3);
+  border-radius: 4px; padding: 1px 5px; letter-spacing: 0.04em;
+}
+
+/* Recategorise block in modal */
+.modalCorrect { margin-top: 14px; }
+
+.modalCorrectBtn {
+  width: 100%; background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--r-md); padding: 10px;
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);
+  cursor: pointer; transition: all 0.12s; letter-spacing: 0.02em;
+}
+.modalCorrectBtn:hover:not(:disabled) {
+  border-color: rgba(212,168,83,0.4); color: var(--gold);
+  background: rgba(212,168,83,0.05);
+}
+.modalCorrectBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.modalCorrectLabel {
+  font-size: 10px; font-family: var(--font-mono); color: var(--text-tertiary);
+  letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 8px;
+}
+
+.modalPickerGrid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 10px;
+}
+
+.modalCorrectCancel {
+  width: 100%; background: none; border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 6px;
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary);
+  cursor: pointer; transition: all 0.1s;
+}
+.modalCorrectCancel:hover { color: var(--text-primary); border-color: var(--border-mid); }
 
 .modalRaw { margin-top: 12px; padding: 11px 13px; background: var(--bg-3); border-radius: var(--r-md); }
-.modalRawLabel{ font-size: 10px; font-family: var(--font-mono); color: var(--text-tertiary); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px; }
-.modalRawText { font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary); word-break: break-all; line-height: 1.6; }
+.modalRawLabel {
+  font-size: 10px; font-family: var(--font-mono); color: var(--text-tertiary);
+  letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px;
+}
+.modalRawText {
+  font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary);
+  word-break: break-all; line-height: 1.6;
+}
