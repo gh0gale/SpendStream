@@ -3,35 +3,10 @@ correction_routes.py
 ────────────────────
 FastAPI router for category corrections.
 
-Endpoints:
-  POST /correct-category   — user corrects a transaction category
-  GET  /model-info         — current model status (health check)
-
-What happens on correction:
-  1. silver_transactions updated (category + user_corrected = true)
-  2. Gold table recalculated for that month/category (both old and new)
-  3. category_feedback upserted (permanent record for retraining)
-  4. record_feedback() → in-memory override + history + online buffer
-     If buffer hits ONLINE_UPDATE_THRESHOLD, background warm refit fires
-     automatically. No manual python --train step needed.
-
-Supabase SQL (run once):
-────────────────────────
-  alter table silver_transactions
-    add column if not exists user_corrected boolean default false;
-
-  create table if not exists category_feedback (
-    id                 uuid primary key default gen_random_uuid(),
-    user_id            uuid not null,
-    silver_id          uuid not null,
-    merchant           text,
-    raw_text           text,
-    original_category  text,
-    corrected_category text not null,
-    amount             numeric,
-    corrected_at       timestamptz default now(),
-    unique (user_id, silver_id)
-  );
+CHANGE: record_feedback() now receives amount + transaction_date so the
+        in-memory history store can log amounts for subscription detection
+        and the online buffer stores metadata for warm-refit.
+        No other logic changed.
 """
 
 from fastapi import APIRouter, HTTPException
@@ -53,10 +28,6 @@ supabase_admin = create_client(
 router = APIRouter()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Schema
-# ─────────────────────────────────────────────────────────────────────────────
-
 class CorrectionRequest(BaseModel):
     silver_id:          str
     merchant:           str
@@ -64,19 +35,10 @@ class CorrectionRequest(BaseModel):
     original_category:  Optional[str]   = None
     corrected_category: str
     amount:             Optional[float] = None
-    transaction_date:   Optional[str]   = None   # "YYYY-MM-DD" used for gold update
+    transaction_date:   Optional[str]   = None
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Helper: recalculate gold for a specific user + month + category
-# ─────────────────────────────────────────────────────────────────────────────
 
 def _refresh_gold(user_id: str, month: str, category: str):
-    """
-    Recalculates gold_monthly_summary for ONE (user, month, category) bucket.
-    Called after a category correction so Gold always reflects Silver.
-    month format: "YYYY-MM-01"
-    """
     res = supabase_admin.table("silver_transactions") \
         .select("amount") \
         .eq("user_id",        user_id) \
@@ -125,16 +87,11 @@ def _to_month(date_str: Optional[str]) -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-01")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# POST /correct-category
-# ─────────────────────────────────────────────────────────────────────────────
-
 @router.post("/correct-category")
 async def correct_category(body: CorrectionRequest, user_id: str):
     if body.corrected_category not in get_categories():
         raise HTTPException(400, f"Unknown category: {body.corrected_category}")
 
-    # 1. Update silver
     updated = supabase_admin.table("silver_transactions") \
         .update({
             "category":       body.corrected_category,
@@ -148,13 +105,11 @@ async def correct_category(body: CorrectionRequest, user_id: str):
     if not updated.data:
         raise HTTPException(404, "Transaction not found or not owned by user")
 
-    # 2. Recalculate Gold — both affected category buckets for that month
     month = _to_month(body.transaction_date)
     if body.original_category and body.original_category != body.corrected_category:
-        _refresh_gold(user_id, month, body.original_category)   # old bucket decreases
-    _refresh_gold(user_id, month, body.corrected_category)       # new bucket increases
+        _refresh_gold(user_id, month, body.original_category)
+    _refresh_gold(user_id, month, body.corrected_category)
 
-    # 3. Persist to category_feedback
     supabase_admin.table("category_feedback").upsert({
         "user_id":            user_id,
         "silver_id":          body.silver_id,
@@ -166,25 +121,23 @@ async def correct_category(body: CorrectionRequest, user_id: str):
         "corrected_at":       datetime.now(timezone.utc).isoformat(),
     }, on_conflict="user_id,silver_id").execute()
 
-    # 4. Immediate ML update + background warm refit if buffer full
+    # ── CHANGED: pass amount + transaction_date so history/metadata is richer ─
     record_feedback(
         user_id            = user_id,
         receiver           = body.merchant,
         raw_text           = body.raw_text or body.merchant,
         corrected_category = body.corrected_category,
+        amount             = body.amount or 0.0,
+        timestamp          = body.transaction_date,
     )
 
     return {
-        "ok":       True,
+        "ok":        True,
         "silver_id": body.silver_id,
         "category":  body.corrected_category,
         "month":     month,
     }
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# GET /model-info
-# ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/model-info")
 async def get_model_info():

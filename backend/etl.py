@@ -361,14 +361,12 @@ def run_categorise_silver(user_id: str) -> int:
     Fetches all uncategorised silver rows for this user,
     runs them through the ML model in a single batch call,
     and updates each row with category + confidence + is_categorised.
-
-    Rows with confidence < threshold get category="Other" and
-    is_categorised=False so they can be reviewed or retrained later.
     """
     print(f"[ETL] Categorising silver rows for user {user_id}")
 
+    # FIX 1: Explicitly select amount and transaction_date so the ML model gets them
     uncategorised = supabase_admin.table("silver_transactions") \
-        .select("id, merchant, bronze_id") \
+        .select("id, merchant, bronze_id, amount, transaction_date") \
         .eq("user_id", user_id) \
         .eq("is_categorised", False) \
         .execute()
@@ -377,7 +375,6 @@ def run_categorise_silver(user_id: str) -> int:
         print("[ETL] No uncategorised silver rows")
         return 0
 
-    # Fetch matching bronze raw_text for richer ML input
     bronze_ids = [r["bronze_id"] for r in uncategorised.data if r.get("bronze_id")]
     bronze_map = {}
 
@@ -388,8 +385,6 @@ def run_categorise_silver(user_id: str) -> int:
             .execute()
         bronze_map = {r["id"]: r for r in bronze_res.data}
 
-    # Build input texts: use raw bronze receiver string when available
-    # (more signal than cleaned merchant name alone)
     silver_rows = uncategorised.data
 
     input_texts = [
@@ -420,11 +415,6 @@ def run_categorise_silver(user_id: str) -> int:
         for r in silver_rows
     ]
 
-    # Optional safety check
-    for i, r in enumerate(receivers):
-        if not isinstance(r, str):
-            raise ValueError(f"Receiver at index {i} is not string: {type(r)}")
-
     predictions = predict_batch(
         raw_texts=input_texts,
         amounts=amounts,
@@ -433,11 +423,13 @@ def run_categorise_silver(user_id: str) -> int:
         receivers=receivers,
     )
 
-    # Update each row
     categorised_count = 0
     other_count       = 0
 
-    for row, (category, confidence), raw_text in zip(silver_rows, predictions, input_texts):
+    # FIX 2: Cleaner unpacking and saving to the History Store
+    for i, row in enumerate(silver_rows):
+        category, confidence = predictions[i]
+        
         is_categorised = category != "Other"
 
         supabase_admin.table("silver_transactions").update({
@@ -446,6 +438,16 @@ def run_categorise_silver(user_id: str) -> int:
         }).eq("id", row["id"]).execute()
 
         if is_categorised:
+            # Safely record to history store so the ML model remembers user habits
+            try:
+                from ml.categoriser import _history_store
+                receiver_str = receivers[i]
+                amount_val = amounts[i]
+                _history_store.record(user_id, receiver_str, category)
+                _history_store.record_amount(user_id, receiver_str, amount_val)
+            except Exception as e:
+                print(f"[ETL] Error recording history: {e}")
+                
             categorised_count += 1
         else:
             other_count += 1
