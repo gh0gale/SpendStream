@@ -355,11 +355,11 @@ def fetch_gmail_for_user(user_id: str) -> dict:
         messages = _fetch_gmail_messages(user_id, access_token, refresh_token, last_fetched)
 
         if not messages:
-            log.info("[Cron] No messages found for user %s — nothing to do", user_id)
-            # Still update last_fetched so next run is incremental
+            log.info("[Cron] No new Gmail messages for user %s — running pipeline on existing data", user_id)
             supabase_admin.table("gmail_sync").update({
                 "last_fetched": datetime.utcnow().isoformat(),
             }).eq("user_id", user_id).execute()
+            run_pipeline(user_id)
             return result
 
         # 4. Parse emails → transaction dicts
