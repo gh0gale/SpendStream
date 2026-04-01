@@ -15,8 +15,42 @@ export default function Dashboard({ user, onNavigate, onSignOut }) {
   const [toast, setToast]                 = useState(null)
   const [selectedCategory, setSelectedCategory] = useState(null)
   const [chartView, setChartView]         = useState('donut')
+  
+  // NEW: Track if Gmail is connected
+  const [isGmailConnected, setIsGmailConnected] = useState(false)
 
-  useEffect(() => { loadGoldData() }, [])
+  useEffect(() => { 
+    loadGoldData()
+    checkGmailConnection() // NEW: Check connection on load
+  }, [])
+
+  // NEW: Query Supabase to see if the user has tokens
+  const checkGmailConnection = async () => {
+    console.log("Checking Gmail connection for user:", user.id);
+    try {
+      const { data, error } = await supabase
+        .from('gmail_sync')
+        .select('user_id') // <--- CHANGED FROM 'id' TO 'user_id'
+        .eq('user_id', user.id)
+        .limit(1);
+        
+      console.log("Supabase Response - Data:", data, "Error:", error);
+
+      if (error) {
+        console.error("Supabase returned an error:", error.message);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        console.log("Tokens found! Setting isGmailConnected to true.");
+        setIsGmailConnected(true);
+      } else {
+        console.log("No tokens found. Supabase returned an empty array.");
+      }
+    } catch (err) {
+      console.error("Network/try-catch error:", err);
+    }
+  }
 
   const loadGoldData = async () => {
     setLoading(true)
@@ -38,6 +72,39 @@ export default function Dashboard({ user, onNavigate, onSignOut }) {
     setTimeout(() => setToast(null), 3500)
   }
 
+
+
+  // NEW: The Polling Function
+  const pollTaskStatus = async (taskId, taskType) => {
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API}/task/${taskId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const data = await res.json()
+
+      if (data.status === 'SUCCESS') {
+        showToast('Processing complete! Dashboard updated.')
+        await loadGoldData()
+        // Turn off the respective loading spinners
+        if (taskType === 'upload') setUploading(false)
+        if (taskType === 'gmail') setFetching(false)
+      } else if (data.status === 'FAILURE') {
+        showToast('Background processing failed.', 'error')
+        if (taskType === 'upload') setUploading(false)
+        if (taskType === 'gmail') setFetching(false)
+      } else {
+        // Status is PENDING, STARTED, or RETRY. Wait 3 seconds and check again.
+        setTimeout(() => pollTaskStatus(taskId, taskType), 3000)
+      }
+    } catch (err) {
+      console.error("Polling error:", err)
+      showToast('Error checking status.', 'error')
+      if (taskType === 'upload') setUploading(false)
+      if (taskType === 'gmail') setFetching(false)
+    }
+  }
+
   const handleFileUpload = async (e) => {
     const file = e.target.files[0]
     if (!file) return
@@ -45,7 +112,8 @@ export default function Dashboard({ user, onNavigate, onSignOut }) {
     if (!allowed.some(ext => file.name.toLowerCase().endsWith(ext))) {
       showToast('Please upload a CSV or Excel file', 'error'); return
     }
-    setUploading(true)
+    
+    setUploading(true) // Start the spinner
     try {
       const token = await getToken()
       const formData = new FormData()
@@ -55,10 +123,24 @@ export default function Dashboard({ user, onNavigate, onSignOut }) {
       })
       const result = await res.json()
       if (!res.ok) throw new Error(result.detail || 'Upload failed')
-      showToast(`Uploaded! ${result.transactions_found} transactions found`)
-      setTimeout(loadGoldData, 3000)
-    } catch (err) { showToast(err.message, 'error') }
-    finally { setUploading(false); e.target.value = '' }
+      
+      showToast('Upload accepted. Analyzing transactions...')
+      
+      // Instead of blindly waiting 3 seconds, start polling the task!
+      if (result.task_id) {
+        pollTaskStatus(result.task_id, 'upload')
+      } else {
+        // Fallback just in case backend didn't return a task ID
+        setUploading(false)
+        loadGoldData()
+      }
+    } catch (err) { 
+      showToast(err.message, 'error') 
+      setUploading(false)
+    } finally { 
+      e.target.value = '' 
+      
+    }
   }
 
   const handleGmailConnect = async () => {
@@ -67,17 +149,29 @@ export default function Dashboard({ user, onNavigate, onSignOut }) {
   }
 
   const handleGmailFetch = async () => {
-    setFetching(true)
+    setFetching(true) // Start the spinner
     try {
       const token = await getToken()
       const res = await fetch(`${API}/fetch-gmail`, { headers: { Authorization: `Bearer ${token}` } })
       const result = await res.json()
       if (!res.ok) throw new Error(result.detail || result.error || 'Fetch failed')
-      showToast(`Fetched ${result.transactions_found} transactions`)
-      setTimeout(loadGoldData, 4000)
-    } catch (err) { showToast(err.message, 'error') }
-    finally { setFetching(false) }
+      
+      showToast('Sync started. Categorizing emails in background...')
+      
+      // Start polling the Celery task
+      if (result.task_id) {
+        pollTaskStatus(result.task_id, 'gmail')
+      } else {
+        setFetching(false)
+      }
+    } catch (err) { 
+      showToast(err.message, 'error') 
+      setFetching(false)
+    }
+    // Again, we do NOT setFetching(false) here. The poller handles it.
   }
+
+// ... [The rest of your component (latestMonth, charts, JSX) remains exactly the same!] ...
 
   const latestMonth = goldData[0]?.month
   const monthData   = goldData.filter(d => d.month === latestMonth)
@@ -112,7 +206,18 @@ export default function Dashboard({ user, onNavigate, onSignOut }) {
               {uploading ? <MiniSpinner /> : '↑'}
               {uploading ? 'Uploading…' : 'Upload CSV'}
             </label>
-            <ActionBtn onClick={handleGmailConnect} icon="✉" variant="secondary">Connect Gmail</ActionBtn>
+
+            {/* NEW: Conditional Gmail Connect Button */}
+            {isGmailConnected ? (
+              <ActionBtn disabled variant="secondary" icon="✓">
+                Connected
+              </ActionBtn>
+            ) : (
+              <ActionBtn onClick={handleGmailConnect} icon="✉" variant="secondary">
+                Connect Gmail
+              </ActionBtn>
+            )}
+
             <ActionBtn onClick={handleGmailFetch} icon="↓" loading={fetching} variant="primary">
               {fetching ? 'Syncing…' : 'Sync Gmail'}
             </ActionBtn>

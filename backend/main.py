@@ -1,21 +1,42 @@
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Header
+"""
+main.py — FastAPI application (web layer only).
+
+All heavy ETL / ML work is delegated to Celery workers via task queues.
+This process stays lean: it handles auth, parsing, DB inserts, and
+immediately returns 202 Accepted to the caller.
+
+What changed from the original
+───────────────────────────────
+• Removed: BackgroundTasks, ThreadPoolExecutor, as_completed
+• Removed: fetch_gmail_for_user(), fetch_gmail_for_all_users(),
+           _fetch_gmail_messages(), _parse_gmail_messages(), etc.
+           (all moved to tasks.py)
+• Added  : .delay() calls to tasks imported from tasks.py
+• Added  : Celery task ID in API responses for optional status polling
+"""
+
+from fastapi import FastAPI, Request, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import UploadFile, File
 from fastapi.responses import RedirectResponse
 from supabase import create_client
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import io
 import re
-import base64
 import logging
 import requests
 import pandas as pd
 
 from dotenv import load_dotenv
-from etl import run_pipeline
 from ml.correction_routes import router as correction_router
+
+# Import Celery tasks — FastAPI never runs ETL/ML directly
+from tasks import (
+    fetch_gmail_for_user_task,
+    fetch_gmail_for_all_users_task,
+    run_pipeline_task,
+)
 
 load_dotenv()
 
@@ -66,12 +87,7 @@ GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 FRONTEND_URL         = os.getenv("FRONTEND_URL", "http://localhost:5173")
 BACKEND_URL          = os.getenv("BACKEND_URL",  "http://127.0.0.1:8000")
-CRON_SECRET          = os.getenv("CRON_SECRET", "")          # set in .env
-CRON_MAX_WORKERS     = int(os.getenv("CRON_MAX_WORKERS", "5"))
-
-REAL_LABELS_PATH = os.path.join(
-    os.path.dirname(__file__), "ml", "data", "real_labels.csv"
-)
+CRON_SECRET          = os.getenv("CRON_SECRET", "")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -81,7 +97,10 @@ REAL_LABELS_PATH = os.path.join(
 def get_user_from_token(request: Request):
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or malformed Authorization header")
+        raise HTTPException(
+            status_code=401,
+            detail="Missing or malformed Authorization header",
+        )
     token = auth_header.split(" ")[1]
     try:
         user = supabase_anon.auth.get_user(token)
@@ -110,368 +129,6 @@ def parse_date_safe(date_val):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Gmail helpers (shared by manual endpoint + cron)
-# ─────────────────────────────────────────────────────────────────────────────
-
-def extract_body(payload: dict) -> str | None:
-    """Recursively extract the raw base64 body from a Gmail message payload."""
-    if "parts" in payload:
-        for part in payload["parts"]:
-            mime = part.get("mimeType", "")
-            if mime in ["text/plain", "text/html"]:
-                data = part["body"].get("data")
-                if data:
-                    return data
-            if "parts" in part:
-                result = extract_body(part)
-                if result:
-                    return result
-    else:
-        return payload.get("body", {}).get("data")
-    return None
-
-
-def _refresh_google_token(user_id: str, refresh_token: str) -> str:
-    """
-    Exchange a refresh token for a new access token and persist it.
-    Raises RuntimeError on failure (caller decides how to handle).
-    """
-    res = requests.post(
-        "https://oauth2.googleapis.com/token",
-        data={
-            "client_id":     GOOGLE_CLIENT_ID,
-            "client_secret": GOOGLE_CLIENT_SECRET,
-            "refresh_token": refresh_token,
-            "grant_type":    "refresh_token",
-        },
-        timeout=15,
-    )
-    data = res.json()
-
-    if "error" in data:
-        raise RuntimeError(
-            f"Google token refresh failed for user {user_id}: {data['error']}"
-        )
-
-    new_access_token = data["access_token"]
-
-    supabase_admin.table("gmail_sync").upsert({
-        "user_id":      user_id,
-        "access_token": new_access_token,
-        "updated_at":   datetime.utcnow().isoformat(),
-    }).execute()
-
-    log.info("[Gmail] Token refreshed for user %s", user_id)
-    return new_access_token
-
-
-def _validate_and_refresh_token(user_id: str, access_token: str, refresh_token: str | None) -> str:
-    """
-    Proactively validate the access token with a cheap profile call.
-    Auto-refreshes if expired. Raises RuntimeError if refresh is impossible.
-    """
-    test = requests.get(
-        "https://gmail.googleapis.com/gmail/v1/users/me/profile",
-        headers={"Authorization": f"Bearer {access_token}"},
-        timeout=10,
-    )
-    if test.status_code != 401:
-        return access_token                         # token is fine
-
-    if not refresh_token:
-        raise RuntimeError(
-            f"Access token expired for user {user_id} and no refresh token available"
-        )
-
-    log.info("[Gmail] Access token expired for user %s — refreshing", user_id)
-    return _refresh_google_token(user_id, refresh_token)
-
-
-def _fetch_gmail_messages(user_id: str, access_token: str, refresh_token: str | None, last_fetched: str | None) -> list[dict]:
-    """
-    Paginate through Gmail and return raw transaction email dicts.
-    Auto-refreshes token on 401. Returns a list of parsed transaction dicts.
-    """
-    if last_fetched:
-        query = (
-            f"from:(hdfc OR icici OR sbi OR axis OR kotak OR yesbank) "
-            f"(debited OR spent OR txn OR transaction) after:{last_fetched[:10]}"
-        )
-        log.info("[Gmail] Incremental fetch from %s for user %s", last_fetched[:10], user_id)
-    else:
-        first_day = datetime.utcnow().replace(day=1).strftime("%Y/%m/%d")
-        query = (
-            f"from:(hdfc OR icici OR sbi OR axis OR kotak OR yesbank) "
-            f"(debited OR spent OR txn OR transaction) after:{first_day}"
-        )
-        log.info("[Gmail] First-time fetch from %s for user %s", first_day, user_id)
-
-    headers          = {"Authorization": f"Bearer {access_token}"}
-    all_messages     = []
-    next_page_token  = None
-
-    for page in range(5):
-        url = (
-            f"https://gmail.googleapis.com/gmail/v1/users/me/messages"
-            f"?q={query}&maxResults=10"
-        )
-        if next_page_token:
-            url += f"&pageToken={next_page_token}"
-
-        res = requests.get(url, headers=headers, timeout=15)
-
-        if res.status_code == 401:
-            if not refresh_token:
-                raise RuntimeError(f"Gmail 401 for user {user_id} — no refresh token")
-            access_token = _refresh_google_token(user_id, refresh_token)
-            headers      = {"Authorization": f"Bearer {access_token}"}
-            res          = requests.get(url, headers=headers, timeout=15)
-
-        data = res.json()
-        all_messages.extend(data.get("messages", []))
-        next_page_token = data.get("nextPageToken")
-        if not next_page_token:
-            break
-
-    log.info("[Gmail] Found %d messages for user %s", len(all_messages), user_id)
-    return all_messages
-
-
-def _parse_gmail_messages(
-    user_id: str,
-    messages: list[dict],
-    access_token: str,
-) -> list[dict]:
-    """
-    Fetch full email bodies and extract transaction data.
-    Returns a list of transaction dicts ready for DB insertion.
-    """
-    headers      = {"Authorization": f"Bearer {access_token}"}
-    transactions = []
-
-    for msg in messages:
-        try:
-            msg_id   = msg["id"]
-            msg_res  = requests.get(
-                f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}",
-                headers=headers,
-                timeout=15,
-            )
-            msg_data = msg_res.json()
-            payload  = msg_data.get("payload", {})
-            raw_body = extract_body(payload)
-
-            if not raw_body:
-                continue
-
-            body = base64.urlsafe_b64decode(raw_body).decode("utf-8", errors="ignore")
-
-            if not re.search(r"(?i)debited|spent|paid", body):
-                continue
-
-            # Amount extraction — try "Rs X debited" then "debited Rs X"
-            match = re.search(
-                r"(?i)(?:rs\.?|inr|₹)\s?([\d,]+\.?\d{0,2}).*?(?:debited|spent|paid)",
-                body,
-            )
-            if not match:
-                match = re.search(
-                    r"(?i)(?:debited|spent|paid).*?(?:rs\.?|inr|₹)\s?([\d,]+\.?\d{0,2})",
-                    body,
-                )
-            if not match:
-                continue
-
-            amount = float(match.group(1).replace(",", ""))
-            if amount <= 0:
-                continue
-
-            receiver_match = re.search(r"(?i)to\s+(.*?)\s+on", body)
-            receiver       = receiver_match.group(1).strip() if receiver_match else "UNKNOWN"
-
-            email_date = None
-            for header in payload.get("headers", []):
-                if header.get("name") == "Date":
-                    email_date = parse_date_safe(header["value"])
-                    break
-
-            transactions.append({
-                "user_id":          user_id,
-                "amount":           amount,
-                "receiver":         receiver[:100],
-                "transaction_type": "debit",
-                "timestamp":        (email_date or datetime.utcnow()).isoformat(),
-                "source":           "gmail",
-                "raw_text":         body[:200],
-            })
-
-        except Exception as e:
-            log.warning("[Gmail] Email parse error (msg %s, user %s): %s", msg.get("id", "?"), user_id, e)
-
-    return transactions
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Core reusable function — works without FastAPI context
-# ─────────────────────────────────────────────────────────────────────────────
-
-def fetch_gmail_for_user(user_id: str) -> dict:
-    """
-    Self-contained Gmail fetch + ETL pipeline for a single user.
-    Safe to call from: background tasks, cron jobs, ThreadPoolExecutor.
-
-    Returns a summary dict with keys: user_id, transactions_found, status, error.
-    Never raises — errors are caught and returned in the summary.
-    """
-    log.info("[Cron] ── Starting Gmail fetch for user %s ──", user_id)
-
-    result = {
-        "user_id":             user_id,
-        "transactions_found":  0,
-        "status":              "ok",
-        "error":               None,
-    }
-
-    try:
-        # 1. Load Gmail tokens from DB
-        token_res = supabase_admin.table("gmail_sync") \
-            .select("*") \
-            .eq("user_id", user_id) \
-            .execute()
-
-        if not token_res.data:
-            raise RuntimeError("No Gmail tokens found — user has not connected Gmail")
-
-        row           = token_res.data[0]
-        access_token  = row["access_token"]
-        refresh_token = row.get("refresh_token")
-        last_fetched  = row.get("last_fetched")
-
-        # 2. Validate token (refresh if expired)
-        access_token = _validate_and_refresh_token(user_id, access_token, refresh_token)
-        headers_live = {"Authorization": f"Bearer {access_token}"}  # keep for parse step
-
-        # 3. Fetch message list (paginated)
-        messages = _fetch_gmail_messages(user_id, access_token, refresh_token, last_fetched)
-
-        if not messages:
-            log.info("[Cron] No new Gmail messages for user %s — running pipeline on existing data", user_id)
-            supabase_admin.table("gmail_sync").update({
-                "last_fetched": datetime.utcnow().isoformat(),
-            }).eq("user_id", user_id).execute()
-            run_pipeline(user_id)
-            return result
-
-        # 4. Parse emails → transaction dicts
-        transactions = _parse_gmail_messages(user_id, messages, access_token)
-
-        # 5. Insert into transactions table
-        if transactions:
-            supabase_admin.table("transactions").insert(transactions).execute()
-            log.info("[Cron] Inserted %d transactions for user %s", len(transactions), user_id)
-
-        # 6. Update last_fetched
-        supabase_admin.table("gmail_sync").update({
-            "last_fetched": datetime.utcnow().isoformat(),
-        }).eq("user_id", user_id).execute()
-
-        # 7. Run ETL pipeline (synchronous here — cron doesn't have BackgroundTasks)
-        run_pipeline(user_id)
-
-        result["transactions_found"] = len(transactions)
-        log.info("[Cron] ── Done for user %s: %d transactions ──", user_id, len(transactions))
-
-    except RuntimeError as e:
-        # Expected operational errors (token expired, no Gmail connected, etc.)
-        result["status"] = "skipped"
-        result["error"]  = str(e)
-        log.warning("[Cron] Skipped user %s: %s", user_id, e)
-
-    except Exception as e:
-        # Unexpected errors — log full traceback, don't crash the loop
-        result["status"] = "error"
-        result["error"]  = str(e)
-        log.exception("[Cron] Unexpected error for user %s: %s", user_id, e)
-
-    return result
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Batch cron function with parallel processing
-# ─────────────────────────────────────────────────────────────────────────────
-
-def fetch_gmail_for_all_users() -> dict:
-    """
-    Fetches Gmail transactions for ALL users who have connected Gmail.
-    Runs users concurrently via ThreadPoolExecutor (max CRON_MAX_WORKERS threads).
-
-    Returns a summary dict with per-user results and aggregate counts.
-    """
-    log.info("[Cron] ══ Starting batch Gmail fetch ══")
-    start = datetime.utcnow()
-
-    # Load all users with Gmail tokens
-    users_res = supabase_admin.table("gmail_sync").select("user_id").execute()
-    user_ids  = [row["user_id"] for row in users_res.data]
-
-    if not user_ids:
-        log.info("[Cron] No users with Gmail connected — nothing to do")
-        return {"users_processed": 0, "results": []}
-
-    log.info("[Cron] Processing %d users with max_workers=%d", len(user_ids), CRON_MAX_WORKERS)
-
-    results    = []
-    ok_count   = 0
-    skip_count = 0
-    err_count  = 0
-
-    with ThreadPoolExecutor(max_workers=CRON_MAX_WORKERS) as executor:
-        futures = {
-            executor.submit(fetch_gmail_for_user, uid): uid
-            for uid in user_ids
-        }
-
-        for future in as_completed(futures):
-            uid = futures[future]
-            try:
-                result = future.result()
-            except Exception as e:
-                # fetch_gmail_for_user never raises, but guard anyway
-                result = {
-                    "user_id": uid,
-                    "transactions_found": 0,
-                    "status": "error",
-                    "error": str(e),
-                }
-                log.exception("[Cron] Future raised unexpectedly for user %s", uid)
-
-            results.append(result)
-
-            if result["status"] == "ok":
-                ok_count += 1
-            elif result["status"] == "skipped":
-                skip_count += 1
-            else:
-                err_count += 1
-
-    elapsed = (datetime.utcnow() - start).total_seconds()
-
-    log.info(
-        "[Cron] ══ Batch complete in %.1fs — ok=%d skipped=%d errors=%d ══",
-        elapsed, ok_count, skip_count, err_count,
-    )
-
-    return {
-        "users_processed":   len(user_ids),
-        "ok":                ok_count,
-        "skipped":           skip_count,
-        "errors":            err_count,
-        "elapsed_seconds":   round(elapsed, 2),
-        "results":           results,
-    }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Protected test route
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -489,8 +146,14 @@ def protected_route(request: Request):
 # File upload
 # ─────────────────────────────────────────────────────────────────────────────
 
-@app.post("/upload-file")
-async def upload_file(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+@app.post("/upload-file", status_code=202)
+async def upload_file(request: Request, file: UploadFile = File(...)):
+    """
+    Parse the uploaded CSV / Excel, insert raw transactions, then
+    enqueue the ETL pipeline as a Celery task.
+
+    Returns 202 Accepted immediately — processing happens asynchronously.
+    """
     user     = get_user_from_token(request)
     contents = await file.read()
 
@@ -536,6 +199,7 @@ async def upload_file(request: Request, background_tasks: BackgroundTasks, file:
                 "transaction_type": "debit",
                 "timestamp":        timestamp.isoformat(),
                 "source":           "file",
+                # raw_text retained briefly; scrubbed post-categorisation
                 "raw_text":         narration,
             })
         except Exception as e:
@@ -544,11 +208,15 @@ async def upload_file(request: Request, background_tasks: BackgroundTasks, file:
     if transactions:
         supabase_admin.table("transactions").insert(transactions).execute()
 
-    background_tasks.add_task(run_pipeline, user.id)
+    # ── Enqueue ETL pipeline — worker handles ML categorisation + scrub ──────
+    task = run_pipeline_task.delay(user.id)
+    log.info("[API] Enqueued run_pipeline_task %s for user %s", task.id, user.id)
 
     return {
-        "message":            "File processed successfully",
+        "status":             "accepted",
+        "message":            "File processed — categorisation running in background",
         "transactions_found": len(transactions),
+        "task_id":            task.id,   # client can poll /task/{id} if needed
     }
 
 
@@ -605,7 +273,10 @@ def auth_callback(code: str, state: str):
     token_data = token_res.json()
 
     if "error" in token_data:
-        raise HTTPException(status_code=400, detail=f"Google OAuth error: {token_data['error']}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Google OAuth error: {token_data['error']}",
+        )
 
     access_token  = token_data.get("access_token")
     refresh_token = token_data.get("refresh_token")
@@ -624,43 +295,71 @@ def auth_callback(code: str, state: str):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Manual Gmail fetch endpoint (unchanged behaviour, refactored internals)
+# Manual Gmail fetch — enqueue for current user
 # ─────────────────────────────────────────────────────────────────────────────
 
-@app.get("/fetch-gmail")
-def fetch_gmail(request: Request, background_tasks: BackgroundTasks):
+@app.get("/fetch-gmail", status_code=202)
+def fetch_gmail(request: Request):
     """
-    Triggers Gmail fetch for the currently logged-in user.
-    Returns immediately; fetch + ETL run in a background task.
+    Enqueue a Gmail fetch + ETL pipeline for the logged-in user.
+    Returns 202 Accepted immediately.
     """
     user = get_user_from_token(request)
-    background_tasks.add_task(fetch_gmail_for_user, user.id)
-    return {"status": "started", "user_id": user.id}
+    task = fetch_gmail_for_user_task.delay(user.id)
+    log.info("[API] Enqueued fetch_gmail_for_user_task %s for user %s", task.id, user.id)
+
+    return {
+        "status":  "accepted",
+        "message": "Gmail fetch started — check back shortly for updated transactions",
+        "task_id": task.id,
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Cron endpoint — fetch Gmail for ALL users
+# Cron endpoint — fan-out fetch for ALL users
 # ─────────────────────────────────────────────────────────────────────────────
 
-@app.post("/cron/fetch-all")
-def cron_fetch_all(
-    background_tasks: BackgroundTasks,
-    x_cron_secret: str | None = Header(default=None),
-):
+@app.post("/cron/fetch-all", status_code=202)
+def cron_fetch_all(x_cron_secret: str | None = Header(default=None)):
     """
-    Secure cron endpoint. Called by a scheduler 3x/day.
-    Protected by X-Cron-Secret header — set CRON_SECRET in your .env.
+    Secure cron endpoint. Enqueues fetch_gmail_for_all_users_task which
+    in turn fans out one task per connected user. Returns 202 instantly.
 
-    Runs the batch in a background task so the HTTP response is instant.
-    The caller (cron job) gets a 202 Accepted immediately.
+    Protected by X-Cron-Secret header — set CRON_SECRET in .env.
     """
     if CRON_SECRET and x_cron_secret != CRON_SECRET:
         raise HTTPException(status_code=403, detail="Invalid or missing cron secret")
 
-    background_tasks.add_task(fetch_gmail_for_all_users)
-    log.info("[Cron] /cron/fetch-all triggered — running in background")
-    return {"status": "accepted", "message": "Batch fetch started in background"}
+    task = fetch_gmail_for_all_users_task.delay()
+    log.info("[API] Enqueued fetch_gmail_for_all_users_task %s", task.id)
+
+    return {
+        "status":  "accepted",
+        "message": "Batch fetch enqueued — workers will process all connected users",
+        "task_id": task.id,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Optional: task status polling endpoint
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/task/{task_id}")
+def get_task_status(task_id: str, request: Request):
+    """
+    Poll the status of any Celery task by ID.
+    Useful for the frontend to show a progress indicator after /fetch-gmail.
+    """
+    get_user_from_token(request)   # ensure caller is authenticated
+
+    from celery_app import celery
+    result = celery.AsyncResult(task_id)
+
+    return {
+        "task_id": task_id,
+        "status":  result.status,           # PENDING / STARTED / SUCCESS / FAILURE / RETRY
+        "result":  result.result if result.ready() else None,
+    }
 
 
 app.include_router(correction_router)
-

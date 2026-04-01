@@ -35,3 +35,7 @@ google-api-python-client>=2.128.0
 apscheduler 
 pytz
 
+# ── Redis (for CRON job locking) ───────────────────────────────
+celery 
+redis
+
