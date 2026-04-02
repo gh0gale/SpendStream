@@ -85,8 +85,8 @@ supabase_admin = create_client(
 
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-FRONTEND_URL         = os.getenv("FRONTEND_URL", "http://localhost:5173")
-BACKEND_URL          = os.getenv("BACKEND_URL",  "http://127.0.0.1:8000")
+FRONTEND_URL         = os.getenv("FRONTEND_URL", "https://spend-stream-phi.vercel.app")
+BACKEND_URL          = os.getenv("BACKEND_URL",  "https://spendstream-api.onrender.com")
 CRON_SECRET          = os.getenv("CRON_SECRET", "")
 
 
