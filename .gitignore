@@ -49,9 +49,3 @@ frontend/dist/
 # =========================
 .ipynb_checkpoints/
 
-# =========================
-# Machine Models / Data
-# =========================
-model_v2.pkl
-label_encoder_v2.pkl
-*.pkl
