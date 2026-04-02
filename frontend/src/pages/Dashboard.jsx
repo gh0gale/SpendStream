@@ -5,7 +5,7 @@ import StatCard from '../components/StatCard'
 import { DonutChart, BarChart, CATEGORY_COLORS } from '../components/Charts'
 import styles from './Dashboard.module.css'
 
-const API = 'http://127.0.0.1:8000'
+const API = 'https://spendstream-api.onrender.com'
 
 export default function Dashboard({ user, onNavigate, onSignOut }) {
   const [goldData, setGoldData]           = useState([])
