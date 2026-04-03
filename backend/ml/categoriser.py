@@ -284,6 +284,7 @@ def extract_metadata(
     freq_norm = float(np.log1p(tx_frequency_30d)) / np.log1p(30)
     
     return np.array([log_amount, hour_sin, hour_cos, dow_norm, freq_norm], dtype=np.float32)
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
