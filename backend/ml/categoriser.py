@@ -289,6 +289,7 @@ def extract_metadata(amount: float, timestamp=None, tx_frequency_30d: int = 0) -
 
 
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # History feature extraction
 # ─────────────────────────────────────────────────────────────────────────────
@@ -571,29 +572,25 @@ def _ensure_loaded():
 
 #     return np.concatenate([text_dense, emb, meta_block], axis=1)
 
-def _build_text_features(
-    raw_texts: list[str],
-    meta_arrs: Optional[list[np.ndarray]] = None,
-):
-    """
-    Returns feature matrix: TF-IDF (char+word) + embeddings + metadata.
-    meta_arrs: list of METADATA_DIM arrays, one per text.
-               If None, zeros are used (cold/legacy path).
-    """
-    processed   = [preprocess_text(t) for t in raw_texts]
-    char_feats  = _tfidf_char.transform(processed)
-    word_feats  = _tfidf_word.transform(processed)
-    text_sparse = hstack([char_feats, word_feats]) # <-- Kept as sparse matrix!
-    emb         = get_embeddings(processed)
+def _build_text_features(raw_texts: list[str], meta_arrs: Optional[list[np.ndarray]] = None):
+    processed = [preprocess_text(t) for t in raw_texts]
+    
+    # 1. Transform text
+    char_feats = _tfidf_char.transform(processed)
+    word_feats = _tfidf_word.transform(processed)
+    text_sparse = hstack([char_feats, word_feats])
+    
+    # 2. Get embeddings
+    emb = get_embeddings(processed)
 
-    # Build metadata block
+    # 3. Build metadata block
     N = len(raw_texts)
     if meta_arrs and len(meta_arrs) == N:
         meta_block = np.stack(meta_arrs).astype(np.float32)
     else:
         meta_block = np.zeros((N, METADATA_DIM), dtype=np.float32)
 
-    # Use scipy's hstack to combine into a CSR sparse matrix to match training format
+    # 4. Return as CSR Sparse Matrix (CRITICAL for model compatibility)
     return hstack([text_sparse, emb, meta_block]).tocsr()
 
 
