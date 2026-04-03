@@ -69,6 +69,8 @@ log = logging.getLogger("categoriser")
 # Paths
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+
 _BASE        = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH   = os.path.join(_BASE, "model_v2.pkl")
 ENCODER_PATH = os.path.join(_BASE, "label_encoder_v2.pkl")
@@ -263,25 +265,24 @@ def preprocess_text(text: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def extract_metadata(
-    amount:           float,
-    timestamp:        Optional[str | datetime] = None,
-    tx_frequency_30d: int = 0,
-) -> np.ndarray:
     log_amount = float(np.log1p(max(amount, 0)))
     if timestamp is not None:
         if isinstance(timestamp, str):
-            try:   ts = datetime.fromisoformat(timestamp[:19])
+            try: ts = datetime.fromisoformat(timestamp[:19])
             except Exception: ts = datetime.now(timezone.utc)
         else:
             ts = timestamp
     else:
         ts = datetime.now(timezone.utc)
-    hour     = ts.hour
-    dow      = ts.weekday()
-    hour_sin = float(np.sin(2 * np.pi * hour / 24))
-    hour_cos = float(np.cos(2 * np.pi * hour / 24))
-    dow_norm = dow / 6.0
+        
+    # Standardize hour to sine/cosine for cyclical time
+    hour_sin = float(np.sin(2 * np.pi * ts.hour / 24))
+    hour_cos = float(np.cos(2 * np.pi * ts.hour / 24))
+    # Standardize Day of Week (0 to 1)
+    dow_norm = ts.weekday() / 6.0
+    # Standardize Frequency
     freq_norm = float(np.log1p(tx_frequency_30d)) / np.log1p(30)
+    
     return np.array([log_amount, hour_sin, hour_cos, dow_norm, freq_norm], dtype=np.float32)
 
 
@@ -505,13 +506,10 @@ def _load_model():
         # new code that adds metadata to an old model file), the model is stale.
         # Wipe it and fall through to the bootstrap path so startup never
         # crashes with a shape mismatch at prediction time.
-        saved_meta_dim = bundle.get("metadata_dim", 0)   # 0 = pre-metadata models
+        saved_meta_dim = bundle.get("metadata_dim", 0)
         if saved_meta_dim != METADATA_DIM:
-            log.warning(
-                f"Stale model detected: saved metadata_dim={saved_meta_dim}, "
-                f"current METADATA_DIM={METADATA_DIM}. "
-                f"Deleting {MODEL_PATH} and reinitializing."
-            )
+           log.warning(f"Metadata mismatch: saved={saved_meta_dim}, current={METADATA_DIM}. Re-initializing.")
+           # This will only trigger if you accidentally push an old 0-dim model!
             try:
                 os.remove(MODEL_PATH)
                 if os.path.exists(ENCODER_PATH):
