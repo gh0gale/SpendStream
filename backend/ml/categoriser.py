@@ -457,73 +457,35 @@ def _load_model():
     with _model_lock:
         if _model_loaded:
             return
+            
         if not os.path.exists(MODEL_PATH):
-            log.warning("No trained model found — initializing new SGD model")
-
-            texts  = ["init"]
-            labels = ["Other"]
-
-            processed = [preprocess_text(t) for t in texts]
-
-            _tfidf_char = TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 5))
-            _tfidf_word = TfidfVectorizer(analyzer="word",    ngram_range=(1, 2))
-
-            char_feats = _tfidf_char.fit_transform(processed)
-            word_feats = _tfidf_word.fit_transform(processed)
-            text_feats = hstack([char_feats, word_feats]).toarray().astype(np.float32)
-
-            emb = get_embeddings(processed)
-
-            # ── CHANGE 9: append zero metadata so bootstrap dim matches later ─
-            meta = np.zeros((len(processed), METADATA_DIM), dtype=np.float32)
-            X    = np.concatenate([text_feats, emb, meta], axis=1)
-
-            _label_encoder = LabelEncoder()
-            _label_encoder.fit(CATEGORIES)
-
-            y = _label_encoder.transform(labels)
-
-            _clf = SGDClassifier(loss="log_loss", random_state=42)
-            _clf.partial_fit(X, y, classes=np.arange(len(_label_encoder.classes_)))
-
-            joblib.dump({
-                "clf":                    _clf,
-                "tfidf_char":             _tfidf_char,
-                "tfidf_word":             _tfidf_word,
-                "embedding_dim":          EMBEDDING_DIM,
-                "metadata_dim":           METADATA_DIM,   # saved for future compat checks
-                "trained_at":             datetime.now(timezone.utc).isoformat(),
-                "online_samples_applied": 0,
-            }, MODEL_PATH)
-
-            joblib.dump(_label_encoder, ENCODER_PATH)
-
-            _model_loaded = True
-            log.info("✅ Initialized new model (no synthetic data)")
+            log.warning("No trained model found on disk.")
             return
 
-        bundle         = joblib.load(MODEL_PATH)
-
-        # ── DIMENSION GUARD ───────────────────────────────────────────────────
-        # The saved model records how many metadata features it was trained
-        # with.  If that number doesn't match METADATA_DIM (e.g. you deployed
-        # new code that adds metadata to an old model file), the model is stale.
-        # Wipe it and fall through to the bootstrap path so startup never
-        # crashes with a shape mismatch at prediction time.
+        bundle = joblib.load(MODEL_PATH)
         saved_meta_dim = bundle.get("metadata_dim", 0)
+
+        # DIMENSION GUARD
         if saved_meta_dim != METADATA_DIM:
-           log.warning(f"Metadata mismatch: saved={saved_meta_dim}, current={METADATA_DIM}. Re-initializing.")
-           # This will only trigger if you accidentally push an old 0-dim model!
+            log.warning(f"Metadata mismatch: saved={saved_meta_dim}, current={METADATA_DIM}. Re-initializing.")
             try:
-                os.remove(MODEL_PATH)
+                if os.path.exists(MODEL_PATH):
+                    os.remove(MODEL_PATH)
                 if os.path.exists(ENCODER_PATH):
                     os.remove(ENCODER_PATH)
             except OSError as e:
                 log.error(f"Could not delete stale model files: {e}")
-            # Recurse once — now MODEL_PATH is gone so the bootstrap branch runs
+            
             _model_loaded = False
-            _load_model()
-            return
+            return  # Exit so the app can attempt to bootstrap or wait for new files
+
+        # Load the real model
+        _clf = bundle["clf"]
+        _tfidf_char = bundle["tfidf_char"]
+        _tfidf_word = bundle["tfidf_word"]
+        _label_encoder = joblib.load(ENCODER_PATH)
+        _model_loaded = True
+        log.info(f"Model loaded from disk (metadata_dim={saved_meta_dim})")
         # ── END DIMENSION GUARD ───────────────────────────────────────────────
 
         _clf           = bundle["clf"]
