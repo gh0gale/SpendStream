@@ -264,12 +264,14 @@ def preprocess_text(text: str) -> str:
 # Metadata feature extraction  (UNCHANGED in signature)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def extract_metadata(
+def extract_metadata(amount: float, timestamp=None, tx_frequency_30d: int = 0) -> np.ndarray:
     log_amount = float(np.log1p(max(amount, 0)))
     if timestamp is not None:
         if isinstance(timestamp, str):
-            try: ts = datetime.fromisoformat(timestamp[:19])
-            except Exception: ts = datetime.now(timezone.utc)
+            try: 
+                ts = datetime.fromisoformat(timestamp[:19])
+            except Exception: 
+                ts = datetime.now(timezone.utc)
         else:
             ts = timestamp
     else:
@@ -284,7 +286,7 @@ def extract_metadata(
     freq_norm = float(np.log1p(tx_frequency_30d)) / np.log1p(30)
     
     return np.array([log_amount, hour_sin, hour_cos, dow_norm, freq_norm], dtype=np.float32)
-)
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
