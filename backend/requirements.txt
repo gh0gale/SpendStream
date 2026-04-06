@@ -1,6 +1,7 @@
 # ── Web framework ──────────────────────────────────────────────
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
 
 # ── Supabase & HTTP ────────────────────────────────────────────
 supabase>=2.4.0
@@ -11,44 +12,28 @@ python-dotenv>=1.0.0
 pydantic>=2.7.0
 
 # ── ML core ────────────────────────────────────────────────────
-scikit-learn>=1.4.0
+# IMPORTANT: pinned to 1.7.2 — model_v2.pkl was pickled with this version.
+# Upgrading sklearn without retraining the model causes InconsistentVersionWarning
+# and silent prediction failures (everything becomes "Other").
+scikit-learn==1.7.2
 numpy>=1.26.0
 scipy>=1.13.0
 pandas>=2.2.0
 joblib>=1.4.0
+openpyxl>=3.1.0
 
-
-# ── Transformer embeddings (optional but recommended) ──────────
-# Enables cold-start predictions and richer feature vectors.
-# ~90MB download on first use (model cached in ~/.cache/torch).
-# Remove this line if you want a lighter install — the categoriser
-# falls back gracefully to TF-IDF-only mode without it.
+# ── Transformer embeddings ─────────────────────────────────────
 sentence-transformers>=3.0.0
 
-# ── Gmail fetch (if used) ──────────────────────────────────────
+# ── Gmail fetch ───────────────────────────────────────────────
 google-auth>=2.29.0
 google-auth-oauthlib>=1.2.0
 google-api-python-client>=2.128.0
 
+# ── Async task queue ──────────────────────────────────────────
+celery>=5.3.0
+redis>=5.0.0
 
-# ── CRON Jobs ──────────────────────────────────────
-apscheduler 
+# ── CRON Jobs ─────────────────────────────────────────────────
+apscheduler
 pytz
-
-# ── Redis (for CRON job locking) ───────────────────────────────
-celery 
-redis
-
-fastapi
-uvicorn
-celery
-redis
-supabase
-python-dotenv
-python-multipart
-sentence-transformers
-google-auth
-google-auth-oauthlib
-google-api-python-client
-pandas
-openpyxl

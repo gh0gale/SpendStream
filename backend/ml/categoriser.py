@@ -508,14 +508,6 @@ def _load_model():
         _model_loaded = True
         _last_model_mtime = os.path.getmtime(MODEL_PATH)
         log.info(f"Model loaded from disk (metadata_dim={saved_meta_dim})")
-        # ── END DIMENSION GUARD ───────────────────────────────────────────────
-
-        _clf           = bundle["clf"]
-        _tfidf_char    = bundle["tfidf_char"]
-        _tfidf_word    = bundle["tfidf_word"]
-        _label_encoder = joblib.load(ENCODER_PATH)
-        _model_loaded  = True
-        log.info(f"Model loaded from disk (metadata_dim={saved_meta_dim})")
 
 
 def _ensure_loaded():
