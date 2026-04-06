@@ -200,13 +200,6 @@ spendstream/
 ```
 
 ---
-
-## License
-
-MIT — see [LICENSE](LICENSE) for details.
-
----
-
 <div align="center">
 
 Built with Python, React, and a lot of bank alerts.
