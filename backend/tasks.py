@@ -307,7 +307,7 @@ def run_pipeline_task(self, user_id: str) -> dict:
         #     scrubbed_count, user_id,
         # )
 
-        return {"status": "ok", "user_id": user_id, "scrubbed": scrubbed_count}
+        return {"status": "ok", "user_id": user_id, "scrubbed": 0}
 
     except Exception as exc:
         log.exception("[Task] run_pipeline_task failed for user %s: %s", user_id, exc)
