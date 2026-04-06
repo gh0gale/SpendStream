@@ -121,11 +121,25 @@ async def correct_category(body: CorrectionRequest, user_id: str):
         "corrected_at":       datetime.now(timezone.utc).isoformat(),
     }, on_conflict="user_id,silver_id").execute()
 
-    # ── CHANGED: pass amount + transaction_date so history/metadata is richer ─
+    # ── FIX: Fetch bronze_id to get the real raw text and receiver ──────────
+    real_receiver = body.merchant
+    real_raw = body.raw_text or body.merchant
+    
+    silver_row = supabase_admin.table("silver_transactions").select("bronze_id").eq("id", body.silver_id).execute()
+    if silver_row.data and silver_row.data[0].get("bronze_id"):
+        bronze_id = silver_row.data[0]["bronze_id"]
+        bronze_row = supabase_admin.table("bronze_transactions").select("receiver, raw_text").eq("id", bronze_id).execute()
+        if bronze_row.data:
+            b_data = bronze_row.data[0]
+            if b_data.get("receiver"):
+                real_receiver = b_data["receiver"]
+            if b_data.get("raw_text"):
+                real_raw = b_data["raw_text"]
+
     record_feedback(
         user_id            = user_id,
-        receiver           = body.merchant,
-        raw_text           = body.raw_text or body.merchant,
+        receiver           = real_receiver,
+        raw_text           = real_raw,
         corrected_category = body.corrected_category,
         amount             = body.amount or 0.0,
         timestamp          = body.transaction_date,

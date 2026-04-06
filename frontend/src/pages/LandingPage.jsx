@@ -4,41 +4,41 @@ import styles from './LandingPage.module.css'
 const FEATURES = [
   {
     icon: '◈',
-    title: 'Gmail Intelligence',
-    desc: 'Automatically extracts transactions from bank alert emails. No manual entry — ever.',
-    tag: 'Inbox → Data',
+    title: 'Zero Effort Tracking',
+    desc: 'Securely detects transactions directly from your bank alerts. No manual entry — ever.',
+    tag: 'Inbox to Dashboard',
   },
   {
     icon: '◎',
-    title: 'ML Categorisation',
-    desc: 'Every transaction intelligently labelled — food, investments, transfers and more.',
+    title: 'Intelligent Organization',
+    desc: 'Every expense is instantly sorted into clear categories — food, investments, and more.',
     tag: 'Smart Tagging',
   },
   {
     icon: '◇',
-    title: 'Medallion Pipeline',
-    desc: 'Raw → Bronze → Silver → Gold. Your data is cleaned and enriched automatically.',
-    tag: 'Auto Enrichment',
+    title: 'Wealth Demystified',
+    desc: 'See exactly where your money goes. Gain confidence and control over your personal wealth.',
+    tag: 'Total Control',
   },
   {
     icon: '◉',
     title: 'Real-time Insights',
-    desc: 'Live dashboard with category breakdowns and monthly spending trends at a glance.',
+    desc: 'Live dashboard with beautiful breakdowns and monthly spending trends at a glance.',
     tag: 'Live Analytics',
   },
 ]
 
 const STATS = [
-  { value: '12+', label: 'Categories' },
-  { value: '99%', label: 'Accuracy' },
-  { value: '∞',   label: 'Transactions' },
+  { value: '100%', label: 'Hands-free' },
+  { value: '0',    label: 'Manual Entries' },
+  { value: '∞',    label: 'Clarity' },
 ]
 
-const PIPELINE = [
-  { layer: 'Raw',    desc: 'Gmail + CSV ingest' },
-  { layer: 'Bronze', desc: 'Deduplicated + fingerprinted' },
-  { layer: 'Silver', desc: 'ML categorised' },
-  { layer: 'Gold',   desc: 'Aggregated insights' },
+const STEPS = [
+  { layer: 'Connect', desc: 'Securely link your inbox' },
+  { layer: 'Detect',  desc: 'We spot bank alerts automatically' },
+  { layer: 'Sort',    desc: 'Expenses are smartly categorized' },
+  { layer: 'Grow',    desc: 'Visualize and optimize your wealth' },
 ]
 
 export default function LandingPage({ onNavigate }) {
@@ -103,8 +103,8 @@ export default function LandingPage({ onNavigate }) {
           </h1>
 
           <p className={styles.heroSub}>
-            SpendStream connects to your Gmail, reads bank alerts, and automatically
-            categorises every transaction using ML. Zero effort. Complete clarity.
+            SpendStream securely connects to your inbox, reads bank alerts, and seamlessly 
+            organizes every transaction. Zero effort required. Complete financial clarity.
           </p>
 
           <div className={styles.heroCtas}>
@@ -167,14 +167,14 @@ export default function LandingPage({ onNavigate }) {
       <section className={styles.pipeline}>
         <div className={styles.sectionInner}>
           <div data-id="pipe-head" className={`${styles.sectionHead} ${vis('pipe-head')}`}>
-            <p className={styles.eyebrow}>How your data flows</p>
+            <p className={styles.eyebrow}>How it works</p>
             <h2 className={styles.sectionTitle}>
-              From inbox to insight.<br />Automatically.
+              From inbox to insight.<br />Without lifting a finger.
             </h2>
           </div>
 
           <div data-id="pipe-flow" className={`${styles.pipeFlow} ${vis('pipe-flow')}`}>
-            {PIPELINE.map(({ layer, desc }, i) => (
+            {STEPS.map(({ layer, desc }, i) => (
               <div key={layer} className={styles.pipeStep}>
                 <div className={styles.pipeNode}>
                   <span className={styles.pipeIndex}>0{i + 1}</span>
@@ -212,7 +212,7 @@ export default function LandingPage({ onNavigate }) {
             <span className={styles.logoMark}>◈</span>
             SpendStream
           </span>
-          <p className={styles.footerNote}>ML · FastAPI · Supabase · Built with care</p>
+          <p className={styles.footerNote}>Empowering your personal wealth · Built with care</p>
         </div>
       </footer>
     </div>
@@ -265,7 +265,7 @@ function MiniDashboardPreview() {
 
       {/* Footer row */}
       <div className={styles.dashFooter}>
-        <span className={styles.dashMeta}>ML categorised · 26 txns</span>
+        <span className={styles.dashMeta}>Autonomously tracked · 26 txns</span>
         <span className={styles.dashViewAll}>view all →</span>
       </div>
     </div>

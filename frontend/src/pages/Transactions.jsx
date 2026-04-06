@@ -173,7 +173,7 @@ export default function Transactions({ user, onNavigate, onSignOut }) {
 
       <div className={styles.inner}>
         <div className={styles.pageHeader}>
-          <p className={styles.pageSubtitle}>Silver table</p>
+          <p className={styles.pageSubtitle}>All Records</p>
           <div className={styles.pageTitleRow}>
             <h1 className={styles.pageTitle}>All transactions</h1>
             <div className={styles.chips}>

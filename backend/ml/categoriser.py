@@ -56,7 +56,7 @@ from scipy.sparse import hstack
 
 import joblib
 
-print("🔥 USING categoriser.py FROM:", __file__)
+print("[categoriser] LOADING LOGIC FROM:", __file__)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging
