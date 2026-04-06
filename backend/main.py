@@ -57,6 +57,28 @@ log = logging.getLogger(__name__)
 
 app = FastAPI()
 
+from apscheduler.schedulers.background import BackgroundScheduler
+
+@app.on_event("startup")
+def start_keep_alive():
+    """
+    Prevent Render free tier from sleeping by self-pinging every 13 minutes.
+    """
+    scheduler = BackgroundScheduler()
+    def ping_self():
+        try:
+            requests.get(f"{BACKEND_URL}/ping", timeout=5)
+            log.info("Keep-alive ping sent to %s", BACKEND_URL)
+        except Exception as e:
+            log.warning("Keep-alive ping failed: %s", e)
+            
+    scheduler.add_job(ping_self, "interval", minutes=13)
+    scheduler.start()
+
+@app.get("/ping")
+def ping():
+    return {"status": "alive"}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
