@@ -428,12 +428,16 @@ def run_categorise_silver(user_id: str) -> int:
 
     # FIX 2: Cleaner unpacking and saving to the History Store
     for i, row in enumerate(silver_rows):
-        category, confidence = predictions[i]
+        raw_cat, raw_conf = predictions[i]
+        
+        # Cast away numpy types which break JSON serialization
+        category = str(raw_cat)
+        confidence = float(raw_conf)
         
         is_categorised = category != "Other"
 
         supabase_admin.table("silver_transactions").update({
-            "category":       category,
+            "category":       category if is_categorised else None,
             "is_categorised": is_categorised,
         }).eq("id", row["id"]).execute()
 

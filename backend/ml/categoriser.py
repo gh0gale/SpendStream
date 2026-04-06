@@ -56,6 +56,15 @@ from scipy.sparse import hstack
 
 import joblib
 
+from supabase import create_client
+import os
+
+supabase_admin = create_client(
+    os.getenv("SUPABASE_URL"),
+    os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
+)
+
+
 print("[categoriser] LOADING LOGIC FROM:", __file__)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -316,6 +325,7 @@ def extract_history_features(
 # Override store
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class UserOverrideStore:
     _overrides: dict = field(default_factory=dict)
@@ -326,58 +336,33 @@ class UserOverrideStore:
     def get(self, user_id: str, receiver: str) -> Optional[str]:
         return self._overrides.get((_norm(user_id), _norm(receiver)))
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# History store
-# ── CHANGE 6: Store timestamped entries to support recency decay ──────────────
-# The public API (record / get / frequency) is unchanged so nothing
-# upstream breaks.  Internally we now store (category, timestamp) tuples
-# instead of a raw Counter, and compute a decay-weighted distribution on
-# the fly in get().
-# ─────────────────────────────────────────────────────────────────────────────
-
 @dataclass
 class HistoryStore:
-    # Each key → list of (category, unix_timestamp) newest-first
     _entries: dict = field(default_factory=lambda: defaultdict(list))
     _last:    dict = field(default_factory=dict)
-
+    
     def record(self, user_id: str, receiver: str, category: str):
         key = (_norm(user_id), _norm(receiver))
         self._entries[key].append((category, time.time()))
         self._last[key] = category
 
     def get(self, user_id: str, receiver: str) -> tuple[dict, Optional[str]]:
-        """
-        Returns a recency-weighted category distribution and last category.
-        Newer entries are weighted by HISTORY_RECENCY_DECAY^position
-        (position 0 = most recent → weight 1.0).
-        """
         key     = (_norm(user_id), _norm(receiver))
         entries = self._entries.get(key, [])
         if not entries:
             return {}, self._last.get(key)
-
-        # Sort newest first
         sorted_entries = sorted(entries, key=lambda x: x[1], reverse=True)
         weighted: dict[str, float] = {}
         for pos, (cat, _ts) in enumerate(sorted_entries):
-            w = HISTORY_RECENCY_DECAY ** pos
+            w = 0.85 ** pos # decay
             weighted[cat] = weighted.get(cat, 0.0) + w
-
         return weighted, self._last.get(key)
 
     def frequency(self, user_id: str, receiver: str) -> int:
         key = (_norm(user_id), _norm(receiver))
         return len(self._entries.get(key, []))
 
-    # ── CHANGE 7: amount history for subscription CV check ────────────────────
     def record_amount(self, user_id: str, receiver: str, amount: float):
-        """
-        Optionally called alongside record() to accumulate amounts for the
-        subscription-pattern detector.  Stored separately to avoid touching
-        the category distribution logic.
-        """
         key = (_norm(user_id), _norm(receiver))
         if not hasattr(self, "_amounts"):
             self._amounts = defaultdict(list)
@@ -388,6 +373,47 @@ class HistoryStore:
             return []
         key = (_norm(user_id), _norm(receiver))
         return self._amounts.get(key, [])
+
+def _load_history_from_db(user_ids: list[str]):
+    """
+    Pulls recent category_feedback from Supabase to populate
+    the _history_store and _override_store dynamically for the current predict batch!
+    Fixes the cross-process Celery worker disconnect!
+    """
+    if not user_ids: return
+    
+    unique_users = list(set(user_ids))
+    try:
+        res = supabase_admin.table("category_feedback") \
+            .select("user_id, merchant, corrected_category, amount, corrected_at") \
+            .in_("user_id", unique_users) \
+            .order("corrected_at", desc=True) \
+            .limit(1000) \
+            .execute()
+        
+        if not res.data:
+            return
+            
+        # Repopulate singleton caches with DB truth
+        _history_store._entries.clear()
+        _history_store._last.clear()
+        if hasattr(_history_store, "_amounts"):
+            _history_store._amounts.clear()
+        _override_store._overrides.clear()
+        
+        for row in reversed(res.data): # oldest to newest so newest is .last
+            u = row.get("user_id", "")
+            m = row.get("merchant", "")
+            c = row.get("corrected_category", "")
+            a = float(row.get("amount") or 0.0)
+            
+            _history_store.record(u, m, c)
+            if a > 0:
+                _history_store.record_amount(u, m, a)
+            _override_store.set(u, m, c)
+            
+    except Exception as e:
+        log.error(f"[DB History Load] Failed: {e}")
 
 
 def _norm(s: str) -> str:
@@ -416,16 +442,7 @@ class OnlineBuffer:
                 "metadata": metadata,   # may be None for legacy callers
             })
             count = len(self._samples)
-        if count >= ONLINE_UPDATE_THRESHOLD and not self._is_running:
-            self._is_running = True
 
-            def run():
-                try:
-                    _online_refit()
-                finally:
-                    self._is_running = False
-
-            threading.Thread(target=run, daemon=True).start()
 
     def drain(self) -> list[dict]:
         with self._lock:
@@ -452,10 +469,14 @@ _label_encoder = None
 _model_loaded  = False
 
 
+import os.path
+_last_model_mtime = 0
+
 def _load_model():
+    global _last_model_mtime
     global _clf, _tfidf_char, _tfidf_word, _label_encoder, _model_loaded
     with _model_lock:
-        if _model_loaded:
+        if _model_loaded and os.path.getmtime(MODEL_PATH) == _last_model_mtime:
             return
             
         if not os.path.exists(MODEL_PATH):
@@ -485,6 +506,7 @@ def _load_model():
         _tfidf_word = bundle["tfidf_word"]
         _label_encoder = joblib.load(ENCODER_PATH)
         _model_loaded = True
+        _last_model_mtime = os.path.getmtime(MODEL_PATH)
         log.info(f"Model loaded from disk (metadata_dim={saved_meta_dim})")
         # ── END DIMENSION GUARD ───────────────────────────────────────────────
 
@@ -591,10 +613,10 @@ def _cold_start_predict(raw_texts: list[str]) -> list[tuple[str, float]]:
 # ── CHANGE 11: includes metadata in feature construction ──────────────────────
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _online_refit():
+def _online_refit(bulk_samples=None):
     global _clf, _model_loaded
 
-    samples = _online_buffer.drain()
+    samples = bulk_samples or _online_buffer.drain()
     if not samples:
         return
 
@@ -876,6 +898,7 @@ def predict_full(
 ) -> PredictionResult:
     t0  = time.perf_counter()
     _ensure_loaded()
+    _load_history_from_db([user_id])
 
     uid = user_id or "__anon__"
     rcv = receiver or raw_text
@@ -944,6 +967,7 @@ def predict_batch(
         return []
 
     _ensure_loaded()
+    _load_history_from_db(user_ids)
     N          = len(raw_texts)
     _user_ids  = user_ids  or ["__anon__"] * N
     _receivers = receivers or raw_texts

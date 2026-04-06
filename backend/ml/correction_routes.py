@@ -17,6 +17,8 @@ import os
 
 from supabase import create_client
 from dotenv import load_dotenv
+from tasks import trigger_online_refit_task
+from traceback import print_exc
 from ml.categoriser import record_feedback, get_categories, model_info
 
 load_dotenv()
@@ -136,14 +138,12 @@ async def correct_category(body: CorrectionRequest, user_id: str):
             if b_data.get("raw_text"):
                 real_raw = b_data["raw_text"]
 
-    record_feedback(
-        user_id            = user_id,
-        receiver           = real_receiver,
-        raw_text           = real_raw,
-        corrected_category = body.corrected_category,
-        amount             = body.amount or 0.0,
-        timestamp          = body.transaction_date,
-    )
+    try:
+        # Trigger background celery retraining task to avoid blocking API
+        from tasks import trigger_online_refit_task
+        trigger_online_refit_task.delay()
+    except Exception as e:
+        print(f"Failed to queue refit task: {e}")
 
     return {
         "ok":        True,

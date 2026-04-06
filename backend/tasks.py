@@ -420,3 +420,25 @@ def fetch_gmail_for_all_users_task() -> dict:
 
     log.info("[Task] Enqueued %d user tasks", len(user_ids))
     return {"users_enqueued": len(user_ids)}
+
+@celery.task(name="tasks.trigger_online_refit_task")
+def trigger_online_refit_task():
+    log.info("[Task] Extracing DB feedback for online refit")
+    # Fetch 50 most recent corrects
+    res = supabase_admin.table("category_feedback").select("*").order("corrected_at", desc=True).limit(50).execute()
+    if not res.data:
+        return {"status": "no data"}
+    
+    samples = []
+    from ml.categoriser import _online_refit, extract_metadata
+    for row in res.data:
+        meta = extract_metadata(float(row.get("amount") or 0.0), row.get("corrected_at"))
+        samples.append({
+            "raw_text": row.get("raw_text") or row.get("merchant", ""),
+            "category": row.get("corrected_category"),
+            "metadata": meta
+        })
+    
+    _online_refit(bulk_samples=samples)
+    log.info("[Task] Refit complete")
+    return {"status": "ok", "refit_samples": len(samples)}
