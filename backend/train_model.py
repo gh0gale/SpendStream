@@ -727,7 +727,40 @@ RAW_CASES = [
     ("VPA paytmqr5wr2s9@ptys Gopal Ramesh Chautala",               "Transfer", (100, 15000), (8, 22)),
     ("VPA q192442722@ybl MAQSOOD WASIULLAH SHAIKH",                "Transfer", (100, 15000), (8, 22)),
 
-    
+    # ──── Additional real-world patterns from failing production data ──────────
+    # Transport — Indian Railways UTS (local train unreserved tickets)
+    ("VPA bdpg2.iruts@sbi Indian Railways UTS",                    "Transport", (4, 100), (6, 22)),
+    ("Indian Railways UTS",                                        "Transport", (4, 100), (6, 22)),
+    ("Indian Railways",                                            "Transport", (50, 5000), (6, 22)),
+
+    # Utilities — Vi (Vodafone Idea) recharge patterns
+    ("VPA vilpremum@ptybl",                                        "Utilities", (149, 2999), (8, 22)),
+    ("vilpremum",                                                  "Utilities", (149, 2999), (8, 22)),
+    ("Vi premium",                                                 "Utilities", (149, 2999), (8, 22)),
+    ("VODAFONE IDEA LIM",                                          "Utilities", (50, 3000), (8, 22)),
+    ("VPA viprev@habc VODAFONE IDEA LIM",                          "Utilities", (149, 2999), (8, 22)),
+    ("Vodafone Idea",                                              "Utilities", (50, 3000), (8, 22)),
+    ("Vi",                                                         "Utilities", (50, 2999), (8, 22)),
+
+    # Food — NBC Vikhroli (local restaurant in Vikhroli, Mumbai)
+    ("NBC Vikhroli",                                               "Food", (80, 600), (10, 22)),
+    ("NBC Vikhroli W",                                             "Food", (80, 600), (10, 22)),
+    ("Food Xpress",                                                "Food", (50, 400), (10, 22)),
+    ("SPICE EXPRESS",                                              "Food", (80, 600), (11, 22)),
+    ("MAHARASHTRIYA MAMLEDAR MISAL RESTAURANT",                    "Food", (80, 500), (8, 22)),
+    ("Baba Mutton shop",                                           "Groceries", (200, 1500), (8, 20)),
+    ("GLOBAL MEDICAL",                                             "Health", (100, 5000), (8, 22)),
+
+    # Transfer — person names observed in failing data
+    ("RAVINDRA S SHETTY",                                          "Transfer", (50, 20000), (8, 22)),
+    ("VPA paytmqr6woody@ptys RAVINDRA S",                          "Transfer", (50, 20000), (8, 22)),
+    ("SIDDHANT AJAYKUMAR PATEL",                                   "Transfer", (50, 20000), (8, 22)),
+    ("VRUSHTI KUNAL GANDHI",                                       "Transfer", (50, 10000), (8, 22)),
+    ("VPA vrushtigandhi3007@okidfcbank VRUSHTI KUNAL GANDHI",      "Transfer", (50, 10000), (8, 22)),
+    ("Mr SAHIL RAJU SAYYED",                                       "Transfer", (50, 10000), (8, 22)),
+    ("SAHIL RAJU SAYYED",                                          "Transfer", (50, 10000), (8, 22)),
+    ("AJITKUMAR SUBHASHCHANDRA GUPT",                              "Transfer", (50, 20000), (8, 22)),
+
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -749,6 +782,10 @@ def preprocess_text(text: str) -> str:
     text    = _HANDLE_PREFIX.sub("", text).strip()
     after   = _UPI_HANDLE.sub("", text).strip()
     working = after if len(after) >= 3 else text
+
+    # Strip payment gateway prefixes (must match categoriser.py exactly)
+    working = _re.sub(r"\b(paytmqr|gpay-|paytm\.)[a-zA-Z0-9-]+\b", " ", working, flags=_re.IGNORECASE)
+
     working = _re.sub(r"[/@.]",      " ", working)
     working = _re.sub(r"\b\d{4,}\b", " ", working)
     working = _NOISE_WORDS.sub(" ",   working)

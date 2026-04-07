@@ -100,7 +100,7 @@ CATEGORIES = [
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-CONFIDENCE_THRESHOLD    = 0.40
+CONFIDENCE_THRESHOLD    = 0.25   # Lowered from 0.40 — fresh models rarely hit 0.40 cleanly
 HISTORY_LAMBDA          = 0.40
 ONLINE_UPDATE_THRESHOLD = 2
 TFIDF_CHAR_MAX          = 40_000
@@ -548,26 +548,36 @@ def _ensure_loaded():
 
 #     return np.concatenate([text_dense, emb, meta_block], axis=1)
 
-def _build_text_features(raw_texts: list[str], meta_arrs: Optional[list[np.ndarray]] = None):
+def _build_text_features(raw_texts: list[str], meta_arrs: Optional[list[np.ndarray]] = None) -> np.ndarray:
+    """
+    Build feature matrix for inference.
+
+    CRITICAL: The SGDClassifier is trained with np.concatenate() producing a DENSE
+    numpy array. Passing a scipy sparse matrix to predict_proba() on a dense-trained
+    model produces near-uniform probabilities, causing ALL predictions to fall below
+    the confidence threshold and collapse to 'Other'.
+
+    This function MUST return a dense float32 array to match training format.
+    """
     processed = [preprocess_text(t) for t in raw_texts]
-    
-    # 1. Transform text
-    char_feats = _tfidf_char.transform(processed)
-    word_feats = _tfidf_word.transform(processed)
-    text_sparse = hstack([char_feats, word_feats])
-    
-    # 2. Get embeddings
+
+    # 1. TF-IDF text features — convert sparse → dense immediately
+    char_feats  = _tfidf_char.transform(processed)
+    word_feats  = _tfidf_word.transform(processed)
+    text_dense  = hstack([char_feats, word_feats]).toarray().astype(np.float32)
+
+    # 2. Sentence-Transformer embeddings (already dense float32)
     emb = get_embeddings(processed)
 
-    # 3. Build metadata block
+    # 3. Metadata block
     N = len(raw_texts)
     if meta_arrs and len(meta_arrs) == N:
         meta_block = np.stack(meta_arrs).astype(np.float32)
     else:
         meta_block = np.zeros((N, METADATA_DIM), dtype=np.float32)
 
-    # 4. Return as CSR Sparse Matrix (CRITICAL for model compatibility)
-    return hstack([text_sparse, emb, meta_block]).tocsr()
+    # 4. Return as dense array — matches np.concatenate() used in train_model.py
+    return np.concatenate([text_dense, emb, meta_block], axis=1)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -644,14 +654,13 @@ def _online_refit(bulk_samples=None):
         log.warning("[online] No valid labels in correction batch — skipping")
         return
 
-    # Safely slice the sparse matrix
+    # Safely slice the dense array
     X_new = X_new[valid_indices]
     y_new = _label_encoder.transform([labels[i] for i in valid_indices])
 
     if X_new.shape[0] < 10:
-        from scipy.sparse import vstack
-        # Use scipy's vstack for sparse matrices, NOT np.concatenate
-        X_new = vstack([X_new] * 3) 
+        # Repeat small batches so partial_fit has enough signal
+        X_new = np.vstack([X_new] * 3)
         y_new = np.concatenate([y_new] * 3)
 
     with _model_lock:

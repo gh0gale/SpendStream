@@ -49,3 +49,5 @@ frontend/dist/
 # =========================
 .ipynb_checkpoints/
 
+
+.agents/

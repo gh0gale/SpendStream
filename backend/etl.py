@@ -108,13 +108,18 @@ MERCHANT_RULES = [
     (r"(?i)sonyliv",             "SonyLIV"),
 
     # Telecom / Utilities
-    (r"(?i)jio",             "Jio"),
+    (r"(?i)\bjio\b",             "Jio"),
     (r"(?i)airtel",              "Airtel"),
     (r"(?i)bsnl",                "BSNL"),
-    (r"(?i)vi|vodafone|idea",  "Vi"),
+    (r"(?i)\bvilpremum\b",       "Vi"),           # Vi premium recharge UPI handle
+    (r"(?i)vi\b|vodafone|idea",  "Vi"),
     (r"(?i)electricity|bescom|msedcl|tpddl|adani\s*electric", "Electricity"),
     (r"(?i)water\s*board|water\s*supply|bwssb",               "Water Bill"),
     (r"(?i)gas\s*(supply|bill)|mahanagar\s*gas|indraprastha",  "Gas Bill"),
+
+    # Transport - Indian Railways UTS (local unreserved train tickets)
+    (r"(?i)indian\s*railways?\s*(uts)?",  "Indian Railways UTS"),
+    (r"(?i)\biruts\b",                    "Indian Railways UTS"),
 
     # Health / Pharmacy
     (r"(?i)apollo",              "Apollo Pharmacy"),
@@ -389,9 +394,12 @@ def run_categorise_silver(user_id: str) -> int:
 
     input_texts = [
         (
-            bronze_map.get(row.get("bronze_id"), {}).get("receiver")
-            or row.get("merchant", "")
-            or ""
+            # Use cleaned Silver merchant first — it was processed by clean_merchant()
+            # and matches what the model was trained on. Fall back to raw receiver
+            # only if merchant is somehow empty.
+            row.get("merchant") or
+            bronze_map.get(row.get("bronze_id"), {}).get("receiver") or
+            ""
         )
         for row in silver_rows
     ]
