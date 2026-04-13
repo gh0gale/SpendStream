@@ -959,15 +959,16 @@ def train(samples_per_case: int = 40, seed: int = 42):
     for j, row in enumerate(df.itertuples()):
         meta[j] = extract_metadata(float(row.amount), row.timestamp, int(row.freq_30d))
 
-    log.info("Stacking features into sparse matrix...")
-    # Use scipy's hstack to safely combine the sparse text matrix with dense embeddings & metadata
-    X = hstack([text_sparse, emb, meta]).tocsr() 
+    log.info("Stacking features into sparse matrix (for memory efficiency)...")
+    # We use sparse here to split the data without OOM, but we MUST
+    # train on DENSE arrays to match categoriser.py inference format
+    X_sparse = hstack([text_sparse, emb, meta]).tocsr() 
 
-    log.info(f"Feature matrix: {X.shape}  "
+    log.info(f"Feature matrix: {X_sparse.shape}  "
              f"(tfidf={text_sparse.shape[1]}, emb={EMBEDDING_DIM}, meta={METADATA_DIM})")
 
     X_tr, X_val, y_tr, y_val = train_test_split(
-        X, y, test_size=0.15, random_state=seed, stratify=y
+        X_sparse, y, test_size=0.15, random_state=seed, stratify=y
     )
     log.info(f"Train: {X_tr.shape[0]}  |  Val: {X_val.shape[0]}")
 
@@ -976,14 +977,38 @@ def train(samples_per_case: int = 40, seed: int = 42):
     cw_dict       = dict(zip(classes_arr, class_weights))
     sw            = np.array([cw_dict[c] for c in y_tr], dtype=np.float32)
 
-    log.info("Training SGDClassifier (log_loss) …")
+    log.info("Training SGDClassifier (log_loss) in dense mini-batches …")
     clf = SGDClassifier(loss="log_loss", max_iter=1000, tol=1e-4,
                         random_state=seed, n_jobs=-1)
-    clf.partial_fit(X_tr, y_tr, classes=classes_arr, sample_weight=sw)
+                        
+    # ── CRITICAL: We must train using dense arrays (not sparse) so inference works ──
+    batch_size = 2000
+    for i in range(0, X_tr.shape[0], batch_size):
+        X_batch = X_tr[i:i+batch_size].toarray().astype(np.float32)
+        y_batch = y_tr[i:i+batch_size]
+        sw_batch = sw[i:i+batch_size]
+        clf.partial_fit(X_batch, y_batch, classes=classes_arr, sample_weight=sw_batch)
 
-    y_pred = clf.predict(X_val)
+    log.info("Evaluating on validation set...")
+    # Evaluate using dense array as well
+    preds = []
+    for i in range(0, X_val.shape[0], batch_size):
+        X_v_batch = X_val[i:i+batch_size].toarray().astype(np.float32)
+        preds.extend(clf.predict(X_v_batch))
+    y_pred = np.array(preds)
+    
     print()
     print(classification_report(y_val, y_pred, target_names=le.classes_, zero_division=0))
+
+    # ── Preserve previously learned online corrections from existing pkl  ──────
+    prev_online_samples = 0
+    if os.path.exists(MODEL_PATH):
+        try:
+            prev = joblib.load(MODEL_PATH)
+            prev_online_samples = prev.get("online_samples_applied", 0)
+            log.info(f"Preserving {prev_online_samples} previously learned corrections from old model")
+        except Exception as e:
+            log.warning(f"Could not read previous model for preservation: {e}")
 
     os.makedirs(_ML_DIR, exist_ok=True)
     joblib.dump({
@@ -993,7 +1018,7 @@ def train(samples_per_case: int = 40, seed: int = 42):
         "embedding_dim":          EMBEDDING_DIM,
         "metadata_dim":           METADATA_DIM,
         "trained_at":             datetime.now(timezone.utc).isoformat(),
-        "online_samples_applied": 0,
+        "online_samples_applied": prev_online_samples,
         "training_rows":          len(df),
         "cases_count":            len(RAW_CASES),
     }, MODEL_PATH)

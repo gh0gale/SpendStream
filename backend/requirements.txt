@@ -30,9 +30,7 @@ google-auth>=2.29.0
 google-auth-oauthlib>=1.2.0
 google-api-python-client>=2.128.0
 
-# ── Async task queue ──────────────────────────────────────────
-celery>=5.3.0
-redis>=5.0.0
+# ── Async task queue (Removed) ──────────────────────────────────────────
 
 # ── CRON Jobs ─────────────────────────────────────────────────
 apscheduler

@@ -56,8 +56,10 @@ from scipy.sparse import hstack
 
 import joblib
 
+from dotenv import load_dotenv
 from supabase import create_client
 import os
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 supabase_admin = create_client(
     os.getenv("SUPABASE_URL"),

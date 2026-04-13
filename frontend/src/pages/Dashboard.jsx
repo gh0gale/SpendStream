@@ -5,7 +5,7 @@ import StatCard from '../components/StatCard'
 import { DonutChart, BarChart, CATEGORY_COLORS } from '../components/Charts'
 import styles from './Dashboard.module.css'
 
-const API = import.meta.env.VITE_API_URL || 'https://spendstream-api.onrender.com'
+const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 export default function Dashboard({ user, onNavigate, onSignOut }) {
   const [goldData, setGoldData]           = useState([])
@@ -74,35 +74,11 @@ export default function Dashboard({ user, onNavigate, onSignOut }) {
 
 
 
-  // NEW: The Polling Function
-  const pollTaskStatus = async (taskId, taskType) => {
-    try {
-      const token = await getToken()
-      const res = await fetch(`${API}/task/${taskId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      const data = await res.json()
-
-      if (data.status === 'SUCCESS') {
-        showToast('Processing complete! Dashboard updated.')
-        await loadGoldData()
-        // Turn off the respective loading spinners
-        if (taskType === 'upload') setUploading(false)
-        if (taskType === 'gmail') setFetching(false)
-      } else if (data.status === 'FAILURE') {
-        showToast('Background processing failed.', 'error')
-        if (taskType === 'upload') setUploading(false)
-        if (taskType === 'gmail') setFetching(false)
-      } else {
-        // Status is PENDING, STARTED, or RETRY. Wait 3 seconds and check again.
-        setTimeout(() => pollTaskStatus(taskId, taskType), 3000)
-      }
-    } catch (err) {
-      console.error("Polling error:", err)
-      showToast('Error checking status.', 'error')
-      if (taskType === 'upload') setUploading(false)
-      if (taskType === 'gmail') setFetching(false)
-    }
+  // Reload dashboard data after a delay to allow background processing
+  const refreshAfterDelay = async (delayMs = 5000) => {
+    setTimeout(async () => {
+      await loadGoldData()
+    }, delayMs)
   }
 
   const handleFileUpload = async (e) => {
@@ -113,7 +89,7 @@ export default function Dashboard({ user, onNavigate, onSignOut }) {
       showToast('Please upload a CSV or Excel file', 'error'); return
     }
     
-    setUploading(true) // Start the spinner
+    setUploading(true)
     try {
       const token = await getToken()
       const formData = new FormData()
@@ -124,22 +100,13 @@ export default function Dashboard({ user, onNavigate, onSignOut }) {
       const result = await res.json()
       if (!res.ok) throw new Error(result.detail || 'Upload failed')
       
-      showToast('Upload accepted. Analyzing transactions...')
-      
-      // Instead of blindly waiting 3 seconds, start polling the task!
-      if (result.task_id) {
-        pollTaskStatus(result.task_id, 'upload')
-      } else {
-        // Fallback just in case backend didn't return a task ID
-        setUploading(false)
-        loadGoldData()
-      }
+      showToast('Upload accepted. Analyzing transactions in background...')
+      refreshAfterDelay(6000) // Refresh dashboard after ~6s to catch results
     } catch (err) { 
       showToast(err.message, 'error') 
-      setUploading(false)
     } finally { 
-      e.target.value = '' 
-      
+      setUploading(false)
+      e.target.value = ''
     }
   }
 
@@ -149,26 +116,20 @@ export default function Dashboard({ user, onNavigate, onSignOut }) {
   }
 
   const handleGmailFetch = async () => {
-    setFetching(true) // Start the spinner
+    setFetching(true)
     try {
       const token = await getToken()
       const res = await fetch(`${API}/fetch-gmail`, { headers: { Authorization: `Bearer ${token}` } })
       const result = await res.json()
       if (!res.ok) throw new Error(result.detail || result.error || 'Fetch failed')
       
-      showToast('Sync started. Categorizing emails in background...')
-      
-      // Start polling the Celery task
-      if (result.task_id) {
-        pollTaskStatus(result.task_id, 'gmail')
-      } else {
-        setFetching(false)
-      }
+      showToast('Gmail sync started. Emails are being categorized...')
+      refreshAfterDelay(8000) // Gmail takes a bit longer — refresh after 8s
     } catch (err) { 
       showToast(err.message, 'error') 
+    } finally {
       setFetching(false)
     }
-    // Again, we do NOT setFetching(false) here. The poller handles it.
   }
 
 // ... [The rest of your component (latestMonth, charts, JSX) remains exactly the same!] ...

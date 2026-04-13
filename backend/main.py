@@ -1,21 +1,13 @@
 """
 main.py — FastAPI application (web layer only).
 
-All heavy ETL / ML work is delegated to Celery workers via task queues.
+All heavy ETL / ML work is delegated to FastAPI BackgroundTasks.
 This process stays lean: it handles auth, parsing, DB inserts, and
 immediately returns 202 Accepted to the caller.
-
-What changed from the original
-───────────────────────────────
-• Removed: BackgroundTasks, ThreadPoolExecutor, as_completed
-• Removed: fetch_gmail_for_user(), fetch_gmail_for_all_users(),
-           _fetch_gmail_messages(), _parse_gmail_messages(), etc.
-           (all moved to tasks.py)
-• Added  : .delay() calls to tasks imported from tasks.py
-• Added  : Celery task ID in API responses for optional status polling
+No Celery. No Redis. No external broker needed.
 """
 
-from fastapi import FastAPI, Request, HTTPException, Header
+from fastapi import FastAPI, Request, HTTPException, Header, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import UploadFile, File
 from fastapi.responses import RedirectResponse
@@ -31,14 +23,14 @@ import pandas as pd
 from dotenv import load_dotenv
 from ml.correction_routes import router as correction_router
 
-# Import Celery tasks — FastAPI never runs ETL/ML directly
+# Import plain task functions
 from tasks import (
     fetch_gmail_for_user_task,
     fetch_gmail_for_all_users_task,
     run_pipeline_task,
 )
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging
@@ -56,24 +48,6 @@ log = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 
 app = FastAPI()
-
-from apscheduler.schedulers.background import BackgroundScheduler
-
-@app.on_event("startup")
-def start_keep_alive():
-    """
-    Prevent Render free tier from sleeping by self-pinging every 13 minutes.
-    """
-    scheduler = BackgroundScheduler()
-    def ping_self():
-        try:
-            requests.get(f"{BACKEND_URL}/ping", timeout=5)
-            log.info("Keep-alive ping sent to %s", BACKEND_URL)
-        except Exception as e:
-            log.warning("Keep-alive ping failed: %s", e)
-            
-    scheduler.add_job(ping_self, "interval", minutes=13)
-    scheduler.start()
 
 @app.get("/ping")
 def ping():
@@ -107,8 +81,8 @@ supabase_admin = create_client(
 
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-FRONTEND_URL         = os.getenv("FRONTEND_URL", "https://spend-stream-phi.vercel.app")
-BACKEND_URL          = os.getenv("BACKEND_URL",  "https://spendstream-api.onrender.com")
+FRONTEND_URL         = os.getenv("FRONTEND_URL", "http://localhost:5173")
+BACKEND_URL          = os.getenv("BACKEND_URL",  "http://localhost:8000")
 CRON_SECRET          = os.getenv("CRON_SECRET", "")
 
 
@@ -169,10 +143,10 @@ def protected_route(request: Request):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.post("/upload-file", status_code=202)
-async def upload_file(request: Request, file: UploadFile = File(...)):
+async def upload_file(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     """
     Parse the uploaded CSV / Excel, insert raw transactions, then
-    enqueue the ETL pipeline as a Celery task.
+    run the ETL pipeline as a BackgroundTask.
 
     Returns 202 Accepted immediately — processing happens asynchronously.
     """
@@ -221,7 +195,6 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
                 "transaction_type": "debit",
                 "timestamp":        timestamp.isoformat(),
                 "source":           "file",
-                # raw_text retained briefly; scrubbed post-categorisation
                 "raw_text":         narration,
             })
         except Exception as e:
@@ -230,15 +203,14 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
     if transactions:
         supabase_admin.table("transactions").insert(transactions).execute()
 
-    # ── Enqueue ETL pipeline — worker handles ML categorisation + scrub ──────
-    task = run_pipeline_task.delay(user.id)
-    log.info("[API] Enqueued run_pipeline_task %s for user %s", task.id, user.id)
+    # ── Run ETL pipeline in background — FastAPI BackgroundTasks ────────────
+    background_tasks.add_task(run_pipeline_task, user.id)
+    log.info("[API] Scheduled run_pipeline_task for user %s", user.id)
 
     return {
         "status":             "accepted",
         "message":            "File processed — categorisation running in background",
         "transactions_found": len(transactions),
-        "task_id":            task.id,   # client can poll /task/{id} if needed
     }
 
 
@@ -317,23 +289,22 @@ def auth_callback(code: str, state: str):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Manual Gmail fetch — enqueue for current user
+# Manual Gmail fetch — runs in background for current user
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.get("/fetch-gmail", status_code=202)
-def fetch_gmail(request: Request):
+def fetch_gmail(request: Request, background_tasks: BackgroundTasks):
     """
-    Enqueue a Gmail fetch + ETL pipeline for the logged-in user.
+    Kick off a Gmail fetch + ETL pipeline for the logged-in user.
     Returns 202 Accepted immediately.
     """
     user = get_user_from_token(request)
-    task = fetch_gmail_for_user_task.delay(user.id)
-    log.info("[API] Enqueued fetch_gmail_for_user_task %s for user %s", task.id, user.id)
+    background_tasks.add_task(fetch_gmail_for_user_task, user.id)
+    log.info("[API] Scheduled fetch_gmail_for_user_task for user %s", user.id)
 
     return {
         "status":  "accepted",
         "message": "Gmail fetch started — check back shortly for updated transactions",
-        "task_id": task.id,
     }
 
 
@@ -342,45 +313,22 @@ def fetch_gmail(request: Request):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.post("/cron/fetch-all", status_code=202)
-def cron_fetch_all(x_cron_secret: str | None = Header(default=None)):
+def cron_fetch_all(background_tasks: BackgroundTasks, x_cron_secret: str | None = Header(default=None)):
     """
-    Secure cron endpoint. Enqueues fetch_gmail_for_all_users_task which
-    in turn fans out one task per connected user. Returns 202 instantly.
+    Secure cron endpoint. Runs fetch_gmail_for_all_users_task in the
+    background for every connected user. Returns 202 instantly.
 
     Protected by X-Cron-Secret header — set CRON_SECRET in .env.
     """
     if CRON_SECRET and x_cron_secret != CRON_SECRET:
         raise HTTPException(status_code=403, detail="Invalid or missing cron secret")
 
-    task = fetch_gmail_for_all_users_task.delay()
-    log.info("[API] Enqueued fetch_gmail_for_all_users_task %s", task.id)
+    background_tasks.add_task(fetch_gmail_for_all_users_task)
+    log.info("[API] Scheduled fetch_gmail_for_all_users_task")
 
     return {
         "status":  "accepted",
-        "message": "Batch fetch enqueued — workers will process all connected users",
-        "task_id": task.id,
-    }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Optional: task status polling endpoint
-# ─────────────────────────────────────────────────────────────────────────────
-
-@app.get("/task/{task_id}")
-def get_task_status(task_id: str, request: Request):
-    """
-    Poll the status of any Celery task by ID.
-    Useful for the frontend to show a progress indicator after /fetch-gmail.
-    """
-    get_user_from_token(request)   # ensure caller is authenticated
-
-    from celery_app import celery
-    result = celery.AsyncResult(task_id)
-
-    return {
-        "task_id": task_id,
-        "status":  result.status,           # PENDING / STARTED / SUCCESS / FAILURE / RETRY
-        "result":  result.result if result.ready() else None,
+        "message": "Batch fetch scheduled — processing all connected users in background",
     }
 
 

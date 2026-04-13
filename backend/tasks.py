@@ -1,14 +1,15 @@
 """
-tasks.py — All heavy ETL / ML work runs here, inside Celery workers.
+tasks.py — All heavy ETL / ML work runs here as plain Python functions.
 
-The FastAPI process never imports SentenceTransformers or runs the pipeline
-directly — it only calls .delay() / .apply_async() to enqueue these tasks.
+No Celery. No Redis. Functions are called directly via FastAPI BackgroundTasks
+or invoked inline from cron_runner.py.
 
-Task catalogue
-──────────────
+Function catalogue
+──────────────────
   run_pipeline_task(user_id)          — ETL + ML categorisation for one user
   fetch_gmail_for_user_task(user_id)  — Gmail fetch → insert → run_pipeline
-  fetch_gmail_for_all_users_task()    — Fan-out: one sub-task per connected user
+  fetch_gmail_for_all_users_task()    — Loop: calls fetch_gmail_for_user for every connected user
+  trigger_online_refit_task()         — Pulls recent feedback and refits the ML model in-place
 """
 
 import os
@@ -22,10 +23,9 @@ import requests
 from supabase import create_client
 from dotenv import load_dotenv
 
-from celery_app import celery
 from etl import run_pipeline          # your existing ETL / ML entry-point
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging
@@ -244,8 +244,6 @@ def _parse_gmail_messages(
                 "transaction_type": "debit",
                 "timestamp":        (email_date or datetime.utcnow()).isoformat(),
                 "source":           "gmail",
-                # raw_text is stored temporarily; scrubbed by run_pipeline_task
-                # after categorisation — see security note in run_pipeline_task.
                 "raw_text":         body[:200],
             })
 
@@ -259,69 +257,26 @@ def _parse_gmail_messages(
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Celery Tasks
+# Plain functions (previously Celery tasks)
 # ═════════════════════════════════════════════════════════════════════════════
 
-@celery.task(
-    bind=True,
-    name="tasks.run_pipeline_task",
-    max_retries=3,
-    default_retry_delay=60,       # seconds between retries
-    autoretry_for=(Exception,),
-    acks_late=True,
-)
-def run_pipeline_task(self, user_id: str) -> dict:
+def run_pipeline_task(user_id: str) -> dict:
     """
     Run the ETL + ML categorisation pipeline for a single user.
-
-    Security: after successful categorisation this task NULLs out the
-    `raw_text` column for every transaction that now has a category,
-    limiting how long raw email snippets are retained in the database.
+    Called via FastAPI BackgroundTasks or directly from other functions.
     """
     log.info("[Task] run_pipeline_task started for user %s", user_id)
 
     try:
-        # ── 1. Run the existing ETL / ML pipeline ────────────────────────────
         run_pipeline(user_id)
-
-        # ── 2. Security: scrub raw_text for categorised transactions ─────────
-        #
-        #    We update rows where:
-        #      • user_id matches
-        #      • category IS NOT NULL  (pipeline has classified them)
-        #      • raw_text IS NOT NULL  (not already scrubbed)
-        #
-        #    This minimises data liability: raw email snippets are only kept
-        #    until the ML model has finished with them.
-        #
-        # scrub_res = (
-        #     supabase_admin.table("transactions")
-        #     .update({"raw_text": None})
-        #     .eq("user_id", user_id)
-        #     .not_.is_("raw_text", "null")    # not already scrubbed
-        #     .execute()
-        # )
-        # scrubbed_count = len(scrub_res.data) if scrub_res.data else 0
-        # log.info(
-        #     "[Task] Scrubbed raw_text from %d categorised transactions for user %s",
-        #     scrubbed_count, user_id,
-        # )
-
-        return {"status": "ok", "user_id": user_id, "scrubbed": 0}
+        return {"status": "ok", "user_id": user_id}
 
     except Exception as exc:
         log.exception("[Task] run_pipeline_task failed for user %s: %s", user_id, exc)
-        raise self.retry(exc=exc)
+        raise
 
 
-@celery.task(
-    bind=True,
-    name="tasks.fetch_gmail_for_user_task",
-    max_retries=2,
-    default_retry_delay=120,
-    acks_late=True,
-)
-def fetch_gmail_for_user_task(self, user_id: str) -> dict:
+def fetch_gmail_for_user_task(user_id: str) -> dict:
     """
     Gmail fetch + insert + pipeline for a single user.
 
@@ -333,7 +288,7 @@ def fetch_gmail_for_user_task(self, user_id: str) -> dict:
     4. Parse emails → transaction dicts
     5. Insert into `transactions` table
     6. Update `last_fetched` timestamp
-    7. Enqueue run_pipeline_task (separate task so ML runs in its own slot)
+    7. Run the ETL pipeline inline
     """
     log.info("[Task] fetch_gmail_for_user_task started for user %s", user_id)
 
@@ -372,10 +327,9 @@ def fetch_gmail_for_user_task(self, user_id: str) -> dict:
             "last_fetched": datetime.utcnow().isoformat(),
         }).eq("user_id", user_id).execute()
 
-        # 7. Enqueue ETL pipeline as a separate task
-        #    (keeps Gmail I/O and ML work in separate queue slots)
-        run_pipeline_task.delay(user_id)
-        log.info("[Task] Enqueued run_pipeline_task for user %s", user_id)
+        # 7. Run ETL pipeline inline
+        run_pipeline_task(user_id)
+        log.info("[Task] Pipeline completed for user %s", user_id)
 
         return {
             "status":             "ok",
@@ -384,26 +338,18 @@ def fetch_gmail_for_user_task(self, user_id: str) -> dict:
         }
 
     except RuntimeError as e:
-        # Expected: token expired, Gmail not connected, etc.
         log.warning("[Task] Skipped user %s: %s", user_id, e)
         return {"status": "skipped", "user_id": user_id, "error": str(e)}
 
     except Exception as exc:
         log.exception("[Task] fetch_gmail_for_user_task failed for user %s: %s", user_id, exc)
-        raise self.retry(exc=exc)
+        raise
 
 
-@celery.task(
-    name="tasks.fetch_gmail_for_all_users_task",
-    acks_late=True,
-)
 def fetch_gmail_for_all_users_task() -> dict:
     """
-    Fan-out task: enqueue one fetch_gmail_for_user_task per connected user.
-
-    This task itself is lightweight — it just reads the user list and
-    dispatches. The actual work happens in per-user worker slots, so
-    CRON_MAX_WORKERS no longer blocks the web process at all.
+    Loop through all users with Gmail connected and process each one.
+    Uses a thread pool to process multiple users concurrently.
     """
     log.info("[Task] fetch_gmail_for_all_users_task — loading user list")
 
@@ -411,24 +357,34 @@ def fetch_gmail_for_all_users_task() -> dict:
     user_ids  = [row["user_id"] for row in users_res.data]
 
     if not user_ids:
-        log.info("[Task] No users with Gmail connected — nothing to enqueue")
-        return {"users_enqueued": 0}
+        log.info("[Task] No users with Gmail connected — nothing to process")
+        return {"users_processed": 0}
 
-    for uid in user_ids:
-        fetch_gmail_for_user_task.delay(uid)
-        log.info("[Task] Enqueued fetch_gmail_for_user_task for user %s", uid)
+    results = []
+    with ThreadPoolExecutor(max_workers=CRON_MAX_WORKERS) as executor:
+        futures = {executor.submit(fetch_gmail_for_user_task, uid): uid for uid in user_ids}
+        for future in as_completed(futures):
+            uid = futures[future]
+            try:
+                result = future.result()
+                results.append(result)
+                log.info("[Task] Completed user %s: %s", uid, result.get("status"))
+            except Exception as e:
+                log.error("[Task] Failed user %s: %s", uid, e)
+                results.append({"status": "error", "user_id": uid, "error": str(e)})
 
-    log.info("[Task] Enqueued %d user tasks", len(user_ids))
-    return {"users_enqueued": len(user_ids)}
+    log.info("[Task] Processed %d users", len(user_ids))
+    return {"users_processed": len(user_ids), "results": results}
 
-@celery.task(name="tasks.trigger_online_refit_task")
-def trigger_online_refit_task():
-    log.info("[Task] Extracing DB feedback for online refit")
-    # Fetch 50 most recent corrects
+
+def trigger_online_refit_task() -> dict:
+    """Pull recent feedback and refit the ML model in-place."""
+    log.info("[Task] Extracting DB feedback for online refit")
+
     res = supabase_admin.table("category_feedback").select("*").order("corrected_at", desc=True).limit(50).execute()
     if not res.data:
         return {"status": "no data"}
-    
+
     samples = []
     from ml.categoriser import _online_refit, extract_metadata
     for row in res.data:
@@ -438,7 +394,7 @@ def trigger_online_refit_task():
             "category": row.get("corrected_category"),
             "metadata": meta
         })
-    
+
     _online_refit(bulk_samples=samples)
     log.info("[Task] Refit complete")
     return {"status": "ok", "refit_samples": len(samples)}

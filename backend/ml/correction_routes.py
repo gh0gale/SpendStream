@@ -3,13 +3,10 @@ correction_routes.py
 ────────────────────
 FastAPI router for category corrections.
 
-CHANGE: record_feedback() now receives amount + transaction_date so the
-        in-memory history store can log amounts for subscription detection
-        and the online buffer stores metadata for warm-refit.
-        No other logic changed.
+Triggers online refit synchronously in a background task (no Celery needed).
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, timezone
@@ -17,11 +14,10 @@ import os
 
 from supabase import create_client
 from dotenv import load_dotenv
-from tasks import trigger_online_refit_task
 from traceback import print_exc
 from ml.categoriser import record_feedback, get_categories, model_info
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 supabase_admin = create_client(
     os.getenv("SUPABASE_URL"),
     os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
@@ -89,8 +85,18 @@ def _to_month(date_str: Optional[str]) -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-01")
 
 
+def _run_refit():
+    """Run the online refit directly (called via BackgroundTasks)."""
+    try:
+        from tasks import trigger_online_refit_task
+        trigger_online_refit_task()
+    except Exception as e:
+        print(f"Refit failed: {e}")
+        print_exc()
+
+
 @router.post("/correct-category")
-async def correct_category(body: CorrectionRequest, user_id: str):
+async def correct_category(body: CorrectionRequest, user_id: str, background_tasks: BackgroundTasks):
     if body.corrected_category not in get_categories():
         raise HTTPException(400, f"Unknown category: {body.corrected_category}")
 
@@ -123,27 +129,8 @@ async def correct_category(body: CorrectionRequest, user_id: str):
         "corrected_at":       datetime.now(timezone.utc).isoformat(),
     }, on_conflict="user_id,silver_id").execute()
 
-    # ── FIX: Fetch bronze_id to get the real raw text and receiver ──────────
-    real_receiver = body.merchant
-    real_raw = body.raw_text or body.merchant
-    
-    silver_row = supabase_admin.table("silver_transactions").select("bronze_id").eq("id", body.silver_id).execute()
-    if silver_row.data and silver_row.data[0].get("bronze_id"):
-        bronze_id = silver_row.data[0]["bronze_id"]
-        bronze_row = supabase_admin.table("bronze_transactions").select("receiver, raw_text").eq("id", bronze_id).execute()
-        if bronze_row.data:
-            b_data = bronze_row.data[0]
-            if b_data.get("receiver"):
-                real_receiver = b_data["receiver"]
-            if b_data.get("raw_text"):
-                real_raw = b_data["raw_text"]
-
-    try:
-        # Trigger background celery retraining task to avoid blocking API
-        from tasks import trigger_online_refit_task
-        trigger_online_refit_task.delay()
-    except Exception as e:
-        print(f"Failed to queue refit task: {e}")
+    # Trigger refit in the background — no Celery needed
+    background_tasks.add_task(_run_refit)
 
     return {
         "ok":        True,
