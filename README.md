@@ -16,10 +16,8 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-20232A?style=flat-square&logo=react&logoColor=61DAFB)](https://reactjs.org/)
 [![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=flat-square&logo=supabase&logoColor=white)](https://supabase.com/)
-[![Celery](https://img.shields.io/badge/Celery-37814A?style=flat-square&logo=celery&logoColor=white)](https://docs.celeryq.dev/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?style=flat-square&logo=scikit-learn&logoColor=white)](https://scikit-learn.org/)
-[![Deployed on Render](https://img.shields.io/badge/Backend-Render-46E3B7?style=flat-square&logo=render&logoColor=white)](https://render.com/)
-[![Deployed on Vercel](https://img.shields.io/badge/Frontend-Vercel-000000?style=flat-square&logo=vercel&logoColor=white)](https://vercel.com/)
+
 
 </div>
 
@@ -97,9 +95,8 @@ A heuristic layer boosts probability scores based on historical frequency and am
 | **Frontend** | React (Vite), Vanilla CSS, Supabase Auth |
 | **Backend API** | FastAPI (Python) |
 | **Database** | Supabase (PostgreSQL) |
-| **Async Tasks** | Celery + Redis (Upstash) |
 | **ML** | scikit-learn 1.7.2, Sentence-Transformers, Pandas, NumPy, Joblib |
-| **Deployment** | Render (Backend), Vercel (Frontend) |
+
 
 ---
 
@@ -134,7 +131,7 @@ NumPy types (`np.str_`, `np.float32`) returned by the ML model caused JSON seria
 - Node.js 18+
 - A Supabase project
 - Google Cloud project with Gmail API + OAuth enabled
-- Upstash Redis instance
+
 
 ### Backend
 
