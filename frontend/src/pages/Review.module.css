@@ -1,0 +1,18 @@
+.page { display: grid; gap: 16px; align-content: start; }
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.head h1:focus { outline: none; }
+
+.groups { list-style: none; background: var(--paper-raised); border: 1px solid var(--rule); border-radius: var(--r-card); padding: 0 20px; }
+.group:last-child { border-bottom: 0; }
+.group {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px 24px;
+  padding: 16px 0; border-bottom: 1px solid var(--rule);
+}
+.summary { display: grid; gap: 4px; min-width: 0; }
+.merchant { font-weight: 600; overflow-wrap: anywhere; }
+.dates summary { cursor: pointer; color: var(--accent); min-height: var(--target); display: flex; align-items: center; width: fit-content; }
+
+@media (max-width: 640px) {
+  .group { grid-template-columns: 1fr; }
+  .group > :global(.btn) { width: 100%; }
+}

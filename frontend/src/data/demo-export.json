@@ -1,0 +1,78 @@
+{
+  "month": "2026-07-01",
+  "breakdown": [
+    {
+      "category": "Investment",
+      "total": 40000.0,
+      "count": 4
+    },
+    {
+      "category": "Transfer",
+      "total": 9280.0,
+      "count": 9
+    },
+    {
+      "category": "Transport",
+      "total": 7118.3,
+      "count": 8
+    },
+    {
+      "category": "Entertainment",
+      "total": 2000.0,
+      "count": 1
+    },
+    {
+      "category": "Subscription",
+      "total": 1978.0,
+      "count": 2
+    },
+    {
+      "category": "Food",
+      "total": 1267.93,
+      "count": 10
+    },
+    {
+      "category": "Groceries",
+      "total": 981.0,
+      "count": 3
+    },
+    {
+      "category": "Health",
+      "total": 80.0,
+      "count": 1
+    }
+  ],
+  "unsure": {
+    "total": 1640.0,
+    "count": 1
+  },
+  "alert": {
+    "text": "Dear Customer, Greetings from HDFC Bank! Rs.1994.50 is debited from your account ending 0000 towards VPA irctcrailweb@axl (IRCTC Rail Web) on 13-07-26. UPI transaction reference no.: 000000000000.",
+    "row": {
+      "date": "2026-07-13",
+      "merchant": "IRCTC",
+      "category": "Transport",
+      "amount": 1994.5
+    }
+  },
+  "cleaning": [
+    {
+      "raw": "VPA irctcrailweb@axl IRCTC Rail Web",
+      "clean": "IRCTC"
+    },
+    {
+      "raw": "VPA dmartavenuesupermart.41105767@hdfcbank DMART AVENUE SUPERMARTS LTD",
+      "clean": "DMart"
+    }
+  ],
+  "correction": {
+    "row": {
+      "date": "2026-09-21",
+      "merchant": "Mutual Fund",
+      "amount": 5000.0,
+      "category": "Subscription"
+    },
+    "chosen": "Investment",
+    "also_updated": 7
+  }
+}

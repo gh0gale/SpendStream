@@ -1,0 +1,56 @@
+# Weekly model retrain (backend/weekly_retrain.py).
+#
+# Retrains only when the shared merchant directory holds enough merchants the
+# live model has not learnt (see MIN_NEW_MERCHANTS / MIN_NEW_ROWS), ships only
+# a model that matches or beats the last one on the golden set, and then calls
+# the host's deploy hook so the backend restarts and downloads it.
+#
+# Private data never touches git or the log: the job downloads it from the
+# private Supabase bucket into this throwaway runner, logs counts only, and
+# uploads no artifacts.
+#
+# Repository secrets (docs/USER_TODO.md):
+#   SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+#   DEPLOY_HOOK_URL   optional; without it, restart the backend by hand
+
+name: Weekly retrain
+
+on:
+  schedule:
+    - cron: "30 21 * * 6"   # Sunday 03:00 IST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: retrain
+  cancel-in-progress: false
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"          # the Docker image's version
+          cache: pip
+          cache-dependency-path: backend/requirements.lock
+
+      - name: Install (exact versions from the lockfile)
+        run: pip install -r requirements.lock
+
+      - name: Retrain if there is enough new data
+        env:
+          PYTHONIOENCODING: utf-8
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DEPLOY_HOOK_URL: ${{ secrets.DEPLOY_HOOK_URL }}
+        run: python weekly_retrain.py

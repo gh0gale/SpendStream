@@ -1,70 +1,295 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+/* SpendStream design system: "passbook, pencil and ink". Revised 2026-09-27
+   to a bolder ledger look: Fraunces headlines, a marigold highlighter,
+   passbook-navy bands and rubber-stamp category chips (docs/design/README.md 5).
+   Every colour, size, radius and duration used in the app is a token here;
+   shared component classes live at the bottom. CSS modules hold layout only. */
 
 :root {
-  --bg:          #000000;
-  --bg-2:        #0a0a0a;
-  --bg-3:        #111111;
-  --surface:     #1a1a1a;
-  --surface-2:   #222222;
-  --surface-3:   #2a2a2a;
-  --border:      rgba(255,255,255,0.08);
-  --border-mid:  rgba(255,255,255,0.12);
-  --border-high: rgba(255,255,255,0.18);
+  color-scheme: light dark;
 
-  --gold:        #d4a853;
-  --gold-light:  #e8c278;
-  --gold-dim:    rgba(212,168,83,0.12);
-  --gold-border: rgba(212,168,83,0.22);
+  --paper:        #F3EFE4;
+  --paper-raised: #FAF7EF;
+  --paper-sunk:   #E9E3D3;
+  --rule:         #CBC3AE;
+  --rule-strong:  #8C846F;
+  --rule-on-sunk: #857D68;
+  --ink:          #1B2230;
+  --ink-2:        #4B5262;
+  --pencil:       #6A6457;
+  --accent:       #1E5B48;
+  --on-accent:    #FAF7EF;
+  --bar:          #2F4A68;
+  --stamp:        #A3372A;
+  --ochre:        #7A5200;
+  --scrim:        rgba(27, 34, 48, 0.4);
 
-  --text-primary:   rgba(255,255,255,0.92);
-  --text-secondary: rgba(255,255,255,0.50);
-  --text-tertiary:  rgba(255,255,255,0.28);
-  --text-disabled:  rgba(255,255,255,0.18);
+  /* Passbook-navy bands (text on them is --on-band), and the marigold of a
+     highlighter pen, used only behind ink text to mark what matters. */
+  --navy:         #1E2F4F;
+  --navy-deep:    #16233C;
+  --on-band:      #F3EFE4;
+  --on-band-2:    #C4CBD8;
+  --marigold:     #F2C14E;
+  --on-marigold:  #1B2230;
 
-  --green:  #32d74b;
-  --red:    #ff453a;
-  --blue:   #0a84ff;
+  --font-display: 'Fraunces', 'Source Serif 4', Georgia, serif;
+  --font-sans:    'IBM Plex Sans', 'Noto Sans', system-ui, sans-serif;
+  --font-mono:    'IBM Plex Mono', ui-monospace, 'Cascadia Code', monospace;
 
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text',
-               'Helvetica Neue', Arial, sans-serif;
-  --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
+  --t-hero-fig: 48px;
+  --t-h1:       40px;
+  --t-h2:       28px;
+  --t-h3:       21px;
+  --t-lead:     19px;
+  --t-body:     16px;
+  --t-small:    14px;
+  --t-caption:  12px;
 
-  --r-xs:  4px;
-  --r-sm:  8px;
-  --r-md:  12px;
-  --r-lg:  16px;
-  --r-xl:  20px;
-  --r-2xl: 28px;
+  --r-control: 8px;    /* buttons, inputs */
+  --r-card:    16px;   /* panels, cards, notices */
+  --r-float:   16px;   /* dialog */
+  --r-sheet:   20px;   /* phone bottom sheet, top corners */
+  --r-band:    28px;   /* navy bands, the dashboard summary */
+  --r-pill:    999px;  /* counts */
+  --r-stamp:   4px;    /* category stamps */
 
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
-  --shadow-md: 0 4px 16px rgba(0,0,0,0.5);
-  --shadow-lg: 0 16px 48px rgba(0,0,0,0.6);
-  --shadow-xl: 0 32px 80px rgba(0,0,0,0.7);
+  --dur-colour: 80ms;
+  --dur-short:  160ms;
+  --dur-med:    240ms;
+  --dur-trace:  1600ms;
+  --ease-settle: cubic-bezier(0.2, 0, 0, 1);
+  --ease-leave:  cubic-bezier(0.4, 0, 1, 1);
+
+  --measure: 68ch;
+  --gutter:  16px;
+  --page-max: 1120px;
+  --target:  44px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper:        #14181F;
+    --paper-raised: #1B2029;
+    --paper-sunk:   #0F1217;
+    --rule:         #2C3340;
+    --rule-strong:  #666F80;
+    --rule-on-sunk: #666F80;
+    --ink:          #ECE6D6;
+    --ink-2:        #B9B3A4;
+    --pencil:       #9A9384;
+    --accent:       #7FBFA5;
+    --on-accent:    #14181F;
+    --bar:          #9DB5D3;
+    --stamp:        #E48A76;
+    --ochre:        #D9A441;
+    --scrim:        rgba(15, 18, 23, 0.6);
+    --navy:         #1A2A47;
+    --navy-deep:    #111B30;
+    --marigold:     #E0AE3C;
+  }
+}
+
+@media (max-width: 640px) {
+  :root {
+    --t-hero-fig: 40px;
+    --t-h1:       30px;
+    --t-h2:       24px;
+    --t-h3:       19px;
+    --t-lead:     18px;
+  }
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-behavior: smooth; }
 
 body {
-  background: var(--bg);
-  color: var(--text-primary);
+  background: var(--paper);
+  color: var(--ink);
   font-family: var(--font-sans);
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: var(--t-body);
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
-  letter-spacing: -0.01em;
 }
 
-::-webkit-scrollbar        { width: 3px; }
-::-webkit-scrollbar-track  { background: transparent; }
-::-webkit-scrollbar-thumb  { background: rgba(255,255,255,0.12); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+h1, h2 { font-family: var(--font-display); font-weight: 650; line-height: 1.05; letter-spacing: -0.025em; font-optical-sizing: auto; }
+.display { font-family: var(--font-display); font-weight: 650; line-height: 1; letter-spacing: -0.03em; font-optical-sizing: auto; }
 
-::selection { background: rgba(212,168,83,0.25); color: var(--gold-light); }
+/* The highlighter: a marigold stroke behind a word, slightly tilted, as if
+   marked by hand in a passbook. Ink on marigold: 9.5:1 light, 7.8:1 dark. */
+.mark { position: relative; z-index: 0; white-space: nowrap; color: var(--on-marigold); }
+.mark::after {
+  content: ''; position: absolute; z-index: -1; left: -0.1em; right: -0.12em; top: 0.12em; bottom: -0.02em;
+  background: var(--marigold); border-radius: 0.12em; transform: rotate(-1.2deg);
+}
+h1 { font-size: var(--t-h1); }
+h2 { font-size: var(--t-h2); }
+h3 { font-size: var(--t-h3); font-weight: 600; line-height: 1.3; }
+p, li, dd { max-width: var(--measure); }
+code, kbd, samp { font-family: var(--font-mono); font-size: 0.93em; }
 
-@keyframes pageIn  { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
-@keyframes fadeIn  { from { opacity:0; } to { opacity:1; } }
-@keyframes spin    { to { transform:rotate(360deg); } }
-@keyframes shimmer { 0%,100%{opacity:.35} 50%{opacity:.6} }
+/* Links in running text: ink, semibold, a marigold underline that fills in
+   behind the words on hover. Links with a class (buttons, nav) style
+   themselves. */
+a { color: inherit; }
+a:not([class]) {
+  color: var(--ink); font-weight: 600; text-decoration: underline;
+  text-decoration-color: var(--marigold); text-decoration-thickness: 2px; text-underline-offset: 4px;
+  border-radius: 3px; transition: background var(--dur-colour), color var(--dur-colour);
+}
+a:not([class]):hover { background: var(--marigold); color: var(--on-marigold); text-decoration-color: transparent; }
+
+/* A link that stands on its own line: bigger target, an arrow after it. */
+.link-arrow {
+  display: inline-flex; align-items: center; gap: 8px; min-height: var(--target); width: fit-content;
+  color: var(--ink); font-weight: 600; text-decoration: none;
+  border-bottom: 2px solid var(--marigold); transition: color var(--dur-colour), border-color var(--dur-colour);
+}
+.link-arrow::after { content: '→'; font-weight: 400; }
+.link-arrow:hover { color: var(--accent); border-color: var(--accent); }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+::selection { background: var(--paper-sunk); color: var(--ink); }
+
+/* ── Shared components ─────────────────────────────────────────────────── */
+
+/* The heading block every app page opens with, as on the landing page. */
+.page-head { display: grid; gap: 8px; }
+.page-head h1 { font-size: clamp(38px, 5vw, 60px); }
+
+.page { width: 100%; max-width: var(--page-max); margin: 0 auto; padding: 0 var(--gutter); }
+.lead { font-size: var(--t-lead); color: var(--ink-2); }
+.small { font-size: var(--t-small); }
+.muted { color: var(--ink-2); }
+.pencil { color: var(--pencil); }
+.caption {
+  font-size: var(--t-caption); text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ink-2); font-weight: 600;
+}
+.num { font-variant-numeric: tabular-nums lining-nums; white-space: nowrap; }
+.rule { border: 0; border-top: 1px solid var(--rule); }
+.visually-hidden {
+  position: absolute !important; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+.skip-link { position: absolute; left: -9999px; }
+.skip-link:focus { left: var(--gutter); top: 8px; z-index: 10; background: var(--paper-raised); padding: 8px 12px; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: var(--target); padding: 0 18px;
+  font: 600 var(--t-body) / 1 var(--font-sans);
+  border: 1px solid var(--rule-strong); border-radius: var(--r-pill);
+  background: var(--paper-raised); color: var(--ink);
+  cursor: pointer; text-decoration: none;
+  transition: background var(--dur-colour), color var(--dur-colour), border-color var(--dur-colour);
+}
+.btn:hover { background: var(--paper-sunk); color: var(--ink); }
+.btn-primary { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.btn-primary:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn-danger { color: var(--stamp); border-color: var(--stamp); }
+.btn-text {
+  border-color: transparent; background: transparent; color: var(--ink);
+  padding: 0 4px; text-decoration: underline; text-decoration-color: var(--marigold);
+  text-decoration-thickness: 2px; text-underline-offset: 4px;
+}
+.btn-text:hover { background: transparent; color: var(--accent); }
+.btn-block { width: 100%; }
+.btn:disabled, .btn[aria-disabled='true'] { opacity: 0.55; cursor: not-allowed; }
+.btn:disabled:hover, .btn[aria-disabled='true']:hover { background: var(--paper-raised); color: var(--ink); }
+.btn-primary:disabled:hover { background: var(--ink); color: var(--paper); }
+
+.field { display: grid; gap: 6px; }
+.field label { font-weight: 600; font-size: var(--t-small); }
+.input {
+  min-height: var(--target); padding: 0 12px; width: 100%;
+  font: var(--t-body) var(--font-sans); color: var(--ink);
+  background: var(--paper-raised); border: 1px solid var(--rule-strong); border-radius: var(--r-control);
+}
+.help { font-size: var(--t-small); color: var(--ink-2); }
+.help-error { font-size: var(--t-small); color: var(--stamp); }
+
+/* Category chip, set like a rubber stamp: ink = settled, pencil = unsure.
+   Shape and wording differ, so the state reads in greyscale. */
+.chip {
+  display: inline-flex; align-items: center; min-height: 26px; padding: 0 8px;
+  font: 700 var(--t-caption) / 1 var(--font-sans); letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink); border: 1.5px solid currentColor; border-radius: var(--r-stamp); background: transparent;
+  transition: color var(--dur-short) var(--ease-settle), border-color var(--dur-short) var(--ease-settle);
+}
+.chip-unsure { color: var(--pencil); border-style: dashed; border-color: var(--pencil); background: transparent; }
+.chip-button {
+  display: inline-flex; align-items: center; min-height: var(--target);
+  background: none; border: 0; padding: 0; cursor: pointer; font: inherit;
+}
+.chip-button:hover .chip { background: var(--paper-sunk); }
+
+.notice {
+  border: 1px solid var(--rule-on-sunk); background: var(--paper-sunk); border-radius: var(--r-card);
+  padding: 16px; display: grid; gap: 10px; justify-items: start;
+}
+.notice-title { font-weight: 600; }
+.notice-error .notice-title { color: var(--stamp); }
+.notice-attention .notice-title { color: var(--ochre); }
+
+.skeleton { background: var(--paper-sunk); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { background: var(--rule); } }
+
+.spinner {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid currentColor; border-right-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Indeterminate rule: a sync job is running (sync_jobs.status). */
+.progress-rule { position: relative; height: 2px; background: var(--rule); overflow: hidden; }
+.progress-rule::after {
+  content: ''; position: absolute; inset: 0 auto 0 0; width: 30%;
+  background: var(--accent); animation: travel 1.6s var(--ease-settle) infinite;
+}
+@keyframes travel { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+
+.ledger { width: 100%; border-collapse: collapse; }
+.ledger caption { text-align: left; }
+.ledger th { text-align: left; }
+.ledger th, .ledger td { padding: 10px 8px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+.ledger thead th { border-bottom-color: var(--rule-strong); }
+.ledger .amount { text-align: right; }
+
+/* Bars: one data colour. Unsure is pencil-hatched: a state, not a category. */
+.bar-track { height: 12px; min-width: 60px; }
+.bar { height: 100%; background: var(--bar); transition: width var(--dur-med) var(--ease-settle); }
+.bar-unsure {
+  background: repeating-linear-gradient(45deg, var(--pencil) 0 1.5px, var(--paper-sunk) 1.5px 6px);
+  outline: 1px dashed var(--pencil); outline-offset: -1px;
+}
+
+.trace { animation: trace var(--dur-trace) var(--ease-leave); }
+@keyframes trace { from { background: var(--paper-sunk); } to { background: transparent; } }
+
+dialog.sheet {
+  margin: auto; width: min(560px, calc(100% - 2 * var(--gutter)));
+  border: 1px solid var(--rule-strong); border-radius: var(--r-float);
+  background: var(--paper-raised); color: var(--ink); padding: 20px;
+}
+dialog.sheet[open] { animation: open var(--dur-short) var(--ease-settle); }
+dialog.sheet::backdrop { background: var(--scrim); }
+@keyframes open { from { opacity: 0; transform: translateY(4px); } }
+@media (max-width: 640px) {
+  dialog.sheet {
+    margin: auto 0 0; width: 100%; max-width: 100%;
+    border-radius: var(--r-sheet) var(--r-sheet) 0 0; border-bottom: 0;
+  }
+  dialog.sheet[open] { animation-name: sheet; }
+  @keyframes sheet { from { transform: translateY(100%); } }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0s !important; animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+  }
+  .skeleton { animation: none; }
+  .progress-rule::after { display: none; }
+  .trace { animation: none; }
+}

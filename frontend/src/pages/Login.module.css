@@ -1,0 +1,32 @@
+.wrap {
+  min-height: 100vh; display: grid; justify-items: center; align-content: start; gap: 24px;
+  padding: 56px var(--gutter) 40px;
+}
+.wordmark { font-family: var(--font-display); font-weight: 700; font-size: 32px; letter-spacing: -0.02em; color: var(--ink); text-decoration: none; }
+
+.panel {
+  width: 100%; max-width: 400px; display: grid; gap: 16px;
+  background: var(--paper-raised); border: 1px solid var(--rule); border-radius: 28px; padding: 28px;
+}
+
+.toggle { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--rule-strong); border-radius: var(--r-control); }
+.toggleButton {
+  min-height: var(--target); border: 0; background: transparent; color: var(--ink-2);
+  font: 600 var(--t-body) var(--font-sans); cursor: pointer; transition: background var(--dur-colour), color var(--dur-colour);
+}
+.toggleButton:first-child { border-radius: var(--r-control) 0 0 var(--r-control); }
+.toggleButton:last-child { border-radius: 0 var(--r-control) var(--r-control) 0; }
+.toggleButton:hover { color: var(--ink); }
+.selected, .selected:hover { background: var(--ink); color: var(--paper); }
+
+.or { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; color: var(--ink-2); font-size: var(--t-small); }
+.or::before, .or::after { content: ''; border-top: 1px solid var(--rule); }
+
+.form { display: grid; gap: 16px; }
+.links { display: flex; gap: 24px; }
+.links a { display: inline-flex; align-items: center; min-height: var(--target); }
+
+@media (max-width: 480px) {
+  .wrap { padding-top: 32px; }
+  .panel { padding: 20px 16px; }
+}

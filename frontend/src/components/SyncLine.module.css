@@ -1,0 +1,26 @@
+.line { display: grid; gap: 8px; }
+.row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; }
+.action { position: relative; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.failed { color: var(--stamp); font-weight: 600; }
+
+/* The "try again in X minutes" note, opened by pressing Sync now too soon. */
+.note {
+  position: absolute; right: 0; top: calc(100% + 10px); z-index: 25; width: 260px;
+  display: grid; gap: 6px; justify-items: end; padding: 14px 14px 8px 16px;
+  background: var(--ink); color: var(--paper); border-radius: var(--r-card);
+  font-size: var(--t-small); animation: noteIn var(--dur-short) var(--ease-settle);
+}
+.note p { justify-self: start; }
+.note :global(.btn-text) { color: var(--marigold); min-height: 36px; }
+.note::before {
+  content: ''; position: absolute; top: -6px; right: 28px; width: 12px; height: 12px;
+  background: var(--ink); transform: rotate(45deg);
+}
+@keyframes noteIn { from { opacity: 0; transform: translateY(-4px); } }
+
+@media (max-width: 640px) {
+  .action { width: 100%; }
+  .action :global(.btn) { width: 100%; }
+  .note { left: 0; right: 0; width: auto; }
+  .note :global(.btn) { width: auto; }
+}

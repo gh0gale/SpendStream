@@ -1,304 +1,197 @@
-import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
-import Navbar from '../components/Navbar'
-import StatCard from '../components/StatCard'
-import { DonutChart, BarChart, CATEGORY_COLORS } from '../components/Charts'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router'
+import CategoryBreakdown from '../components/CategoryBreakdown'
+import { ErrorNotice, SkeletonBlock, SkeletonRows } from '../components/States'
+import SyncLine from '../components/SyncLine'
+import { useAuth } from '../lib/auth'
+import { formatINR, formatMonth, formatMonthShort, plural } from '../lib/format'
+import { notifyReviewChanged } from '../lib/reviewQueue'
+import { useGmailSync } from '../lib/useGmailSync'
+import { usePageTitle } from '../lib/usePageTitle'
+import { monthTotal, useSpending } from '../lib/useSpending'
 import styles from './Dashboard.module.css'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// /auth/callback sends the user back with ?gmail=<result> (contract in
+// .claude/rules/general.md).
+const GMAIL_RESULTS = {
+  connected: { text: 'Gmail connected. Reading this month’s alerts.' },
+  denied:    { text: "You didn't grant access. Nothing was read.", action: 'Try again' },
+  expired:   { text: 'The link timed out. Start again.', action: 'Start again' },
+  error:     { text: "Google didn't complete the connection. Try again.", action: 'Try again' },
+}
 
-export default function Dashboard({ user, onNavigate, onSignOut }) {
-  const [goldData, setGoldData]           = useState([])
-  const [loading, setLoading]             = useState(true)
-  const [uploading, setUploading]         = useState(false)
-  const [fetching, setFetching]           = useState(false)
-  const [toast, setToast]                 = useState(null)
-  const [selectedCategory, setSelectedCategory] = useState(null)
-  const [chartView, setChartView]         = useState('donut')
-  
-  // NEW: Track if Gmail is connected
-  const [isGmailConnected, setIsGmailConnected] = useState(false)
+export default function Dashboard() {
+  usePageTitle('Dashboard')
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
+  const [gmailResult] = useState(() => GMAIL_RESULTS[params.get('gmail')] ? params.get('gmail') : null)
 
-  useEffect(() => { 
-    loadGoldData()
-    checkGmailConnection() // NEW: Check connection on load
-  }, [])
+  const spending = useSpending(user.id)
+  const { reload } = spending
+  const onFinished = useCallback(() => { reload(); notifyReviewChanged() }, [reload])
+  const sync = useGmailSync(user.id, { onFinished })
 
-  // NEW: Query Supabase to see if the user has tokens
-  const checkGmailConnection = async () => {
-    console.log("Checking Gmail connection for user:", user.id);
-    try {
-      const { data, error } = await supabase
-        .from('gmail_sync')
-        .select('user_id') // <--- CHANGED FROM 'id' TO 'user_id'
-        .eq('user_id', user.id)
-        .limit(1);
-        
-      console.log("Supabase Response - Data:", data, "Error:", error);
+  // A new connection starts its first sync at once, exactly once (the ref
+  // survives StrictMode's second effect run; a second call would be refused).
+  const { start } = sync
+  const handledResult = useRef(false)
+  useEffect(() => {
+    if (!gmailResult || handledResult.current) return
+    handledResult.current = true
+    setParams({}, { replace: true })
+    if (gmailResult === 'connected') start()
+  }, [gmailResult, setParams, start])
 
-      if (error) {
-        console.error("Supabase returned an error:", error.message);
-        return;
-      }
+  const [monthIndex, setMonthIndex] = useState(0)
+  const months = spending.months
+  const index = Math.min(monthIndex, Math.max(months.length - 1, 0))
+  const current = months[index]
 
-      if (data && data.length > 0) {
-        console.log("Tokens found! Setting isGmailConnected to true.");
-        setIsGmailConnected(true);
-      } else {
-        console.log("No tokens found. Supabase returned an empty array.");
-      }
-    } catch (err) {
-      console.error("Network/try-catch error:", err);
-    }
-  }
-
-  const loadGoldData = async () => {
-    setLoading(true)
-    try {
-      const { data } = await supabase.from('gold_monthly_summary').select('*')
-        .eq('user_id', user.id).order('month', { ascending: false })
-      setGoldData(data || [])
-    } catch { showToast('Failed to load data', 'error') }
-    finally { setLoading(false) }
-  }
-
-  const getToken = async () => {
-    const { data } = await supabase.auth.getSession()
-    return data.session.access_token
-  }
-
-  const showToast = (msg, type = 'success') => {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 3500)
-  }
-
-
-
-  // Reload dashboard data after a delay to allow background processing
-  const refreshAfterDelay = async (delayMs = 5000) => {
-    setTimeout(async () => {
-      await loadGoldData()
-    }, delayMs)
-  }
-
-  const handleFileUpload = async (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    const allowed = ['.csv', '.xlsx', '.xls']
-    if (!allowed.some(ext => file.name.toLowerCase().endsWith(ext))) {
-      showToast('Please upload a CSV or Excel file', 'error'); return
-    }
-    
-    setUploading(true)
-    try {
-      const token = await getToken()
-      const formData = new FormData()
-      formData.append('file', file)
-      const res = await fetch(`${API}/upload-file`, {
-        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: formData
-      })
-      const result = await res.json()
-      if (!res.ok) throw new Error(result.detail || 'Upload failed')
-      
-      showToast('Upload accepted. Analyzing transactions in background...')
-      refreshAfterDelay(6000) // Refresh dashboard after ~6s to catch results
-    } catch (err) { 
-      showToast(err.message, 'error') 
-    } finally { 
-      setUploading(false)
-      e.target.value = ''
-    }
-  }
-
-  const handleGmailConnect = async () => {
-    const { data } = await supabase.auth.getSession()
-    window.location.href = `${API}/auth/google?token=${data.session.access_token}`
-  }
-
-  const handleGmailFetch = async () => {
-    setFetching(true)
-    try {
-      const token = await getToken()
-      const res = await fetch(`${API}/fetch-gmail`, { headers: { Authorization: `Bearer ${token}` } })
-      const result = await res.json()
-      if (!res.ok) throw new Error(result.detail || result.error || 'Fetch failed')
-      
-      showToast('Gmail sync started. Emails are being categorized...')
-      refreshAfterDelay(8000) // Gmail takes a bit longer — refresh after 8s
-    } catch (err) { 
-      showToast(err.message, 'error') 
-    } finally {
-      setFetching(false)
-    }
-  }
-
-// ... [The rest of your component (latestMonth, charts, JSX) remains exactly the same!] ...
-
-  const latestMonth = goldData[0]?.month
-  const monthData   = goldData.filter(d => d.month === latestMonth)
-  const totalSpend  = monthData.reduce((s, d) => s + Number(d.total_amount), 0)
-  const totalTxns   = monthData.reduce((s, d) => s + d.txn_count, 0)
-  const topCategory = [...monthData].sort((a,b) => b.total_amount - a.total_amount)[0]
-
-  const formatMonth = (m) => {
-    if (!m) return '—'
-    return new Date(m).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
-  }
-  const formatINR = (n) => '₹' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 0 })
+  const firstSync = sync.sync?.state === 'running' && spending.status === 'ready' && months.length === 0
+  const result = gmailResult && GMAIL_RESULTS[gmailResult]
 
   return (
     <div className={styles.page}>
-      <Navbar user={user} currentPage="dashboard" onNavigate={onNavigate} onSignOut={onSignOut} />
-
-      {toast && (
-        <div className={`${styles.toast} ${styles[toast.type]}`}>{toast.msg}</div>
+      {result && (
+        <div className="notice" role="status" tabIndex={-1}>
+          <p className="notice-title">{result.text}</p>
+          {result.action && <button type="button" className="btn" onClick={() => navigate('/connect')}>{result.action}</button>}
+        </div>
       )}
 
-      <div className={styles.inner}>
-        {/* Header */}
-        <div className={styles.pageHeader}>
-          <div>
-            <p className={styles.pageSubtitle}>{formatMonth(latestMonth)}</p>
-            <h1 className={styles.pageTitle}>Spending overview</h1>
-          </div>
-          <div className={styles.actions}>
-            <label className={`${styles.uploadLabel} ${uploading ? styles.disabled : ''}`}>
-              <input type="file" accept=".csv,.xlsx,.xls" onChange={handleFileUpload} style={{ display:'none' }} disabled={uploading} />
-              {uploading ? <MiniSpinner /> : '↑'}
-              {uploading ? 'Uploading…' : 'Upload CSV'}
-            </label>
+      <GmailNotice gmail={sync.gmail} onRetry={sync.reloadGmail} />
 
-            {/* NEW: Conditional Gmail Connect Button */}
-            {isGmailConnected ? (
-              <ActionBtn disabled variant="secondary" icon="✓">
-                Connected
-              </ActionBtn>
-            ) : (
-              <ActionBtn onClick={handleGmailConnect} icon="✉" variant="secondary">
-                Connect Gmail
-              </ActionBtn>
-            )}
-
-            <ActionBtn onClick={handleGmailFetch} icon="↓" loading={fetching} variant="primary">
-              {fetching ? 'Syncing…' : 'Sync Gmail'}
-            </ActionBtn>
+      {firstSync ? (
+        <section className={styles.firstSync}>
+          <h1 className="display">Reading <span className="mark">this month</span>.</h1>
+          <SyncLine sync={sync} />
+          <p className="muted">
+            SpendStream is searching your Gmail for bank alerts, reading each one, and sorting the
+            payments. You can leave this page; it continues on the server.
+          </p>
+        </section>
+      ) : (
+        <>
+          <div className={styles.topRow}>
+            <header className={styles.head}>
+              <p className="caption">Dashboard</p>
+              <h1 className="display">Where your <span className="mark">money</span> went.</h1>
+            </header>
+            {sync.gmail.status !== 'none' && <div className={styles.syncCard}><SyncLine sync={sync} /></div>}
           </div>
+          <Spending
+            spending={spending}
+            current={current}
+            index={index}
+            count={months.length}
+            onMonth={setMonthIndex}
+            months={months}
+          />
+        </>
+      )}
+    </div>
+  )
+}
+
+function GmailNotice({ gmail, onRetry }) {
+  if (gmail.status === 'error') {
+    return <ErrorNotice title="Couldn't check your Gmail connection." detail={gmail.detail} onRetry={onRetry} />
+  }
+  if (gmail.status === 'none') {
+    return (
+      <div className="notice">
+        <p className="notice-title">Gmail is not connected. Connect Gmail first.</p>
+        <Link to="/connect" className="btn btn-primary">Connect Gmail</Link>
+      </div>
+    )
+  }
+  if (gmail.status === 'reconnect') {
+    return (
+      <div className="notice notice-attention" role="status">
+        <p className="notice-title">Gmail access has expired. Reconnect Gmail to keep syncing.</p>
+        <Link to="/connect" className="btn btn-primary">Reconnect Gmail</Link>
+      </div>
+    )
+  }
+  return null
+}
+
+function Spending({ spending, current, index, count, onMonth, months }) {
+  if (spending.status === 'error') {
+    return <ErrorNotice title="Couldn't load your payments." detail={spending.detail} onRetry={spending.reload} />
+  }
+  if (spending.status === 'loading' && !current) {
+    return (
+      <section className={styles.spending} aria-busy="true">
+        <div className={styles.summary}>
+          <SkeletonBlock height={16} width={140} />
+          <SkeletonBlock height={72} width={240} />
+          <SkeletonBlock height={16} width={200} />
         </div>
+        <div className={styles.table}><SkeletonRows rows={9} height={22} /></div>
+      </section>
+    )
+  }
+  if (!current) {
+    return (
+      <section className={styles.spending}>
+        <p className="muted">
+          No bank alerts found this month. SpendStream currently reads HDFC alerts reliably.
+          Check this is the Gmail that receives them. <Link to="/how-it-works">How it works</Link>
+        </p>
+      </section>
+    )
+  }
 
-        {/* Stats */}
-        <div className={styles.statGrid}>
-          <StatCard label="Total spend"   value={loading ? '—' : formatINR(totalSpend)}  sub={`${totalTxns} transactions`} accent icon="◈" loading={loading} />
-          <StatCard label="Top category"  value={loading ? '—' : (topCategory?.category || '—')} sub={topCategory ? formatINR(topCategory.total_amount) : ''} icon="◎" loading={loading} />
-          <StatCard label="Categories"    value={loading ? '—' : monthData.length} sub="tracked this month" icon="◇" loading={loading} />
-          <StatCard label="Avg per txn"   value={loading || !totalTxns ? '—' : formatINR(totalSpend / totalTxns)} sub="this month" icon="◉" loading={loading} />
-        </div>
+  const older = months[index + 1]
+  const newer = months[index - 1]
+  const month = current.month.slice(0, 7)
+  const reviewCount = current.unsure.count
 
-        {/* Charts */}
-        <div className={styles.chartsRow}>
-          {/* Donut / Bar */}
-          <div className={styles.chartCard}>
-            <div className={styles.chartCardHeader}>
-              <p className={styles.chartCardTitle}>By category</p>
-              <div className={styles.viewToggle}>
-                {['donut','bar'].map(v => (
-                  <button key={v} onClick={() => setChartView(v)}
-                    className={`${styles.viewBtn} ${chartView === v ? styles.active : ''}`}>{v}</button>
-                ))}
-              </div>
-            </div>
-            <div className={styles.chartArea}>
-              {loading ? <div className={styles.chartSkeleton} />
-                : monthData.length === 0 ? <EmptyState />
-                : chartView === 'donut'
-                  ? <DonutChart data={monthData} onSliceClick={setSelectedCategory} />
-                  : <BarChart data={monthData} />
-              }
-            </div>
-            {selectedCategory && chartView === 'donut' && (
-              <div className={styles.catDetail} style={{ borderColor: (CATEGORY_COLORS[selectedCategory.category] || '#888') + '33' }}>
-                <div className={styles.catDetailInner}>
-                  <div>
-                    <p className={styles.catName} style={{ color: CATEGORY_COLORS[selectedCategory.category] || 'var(--text-primary)' }}>
-                      {selectedCategory.category}
-                    </p>
-                    <p className={styles.catTxns}>{selectedCategory.txn_count} transactions</p>
-                  </div>
-                  <p className={styles.catAmount}>{formatINR(selectedCategory.total_amount)}</p>
-                  <button className={styles.catClose} onClick={() => setSelectedCategory(null)}>×</button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Breakdown list */}
-          <div className={styles.breakdownCard}>
-            <p className={styles.breakdownTitle}>Breakdown</p>
-            {loading ? (
-              <div className={styles.skeletonList}>
-                {[...Array(5)].map((_,i) => <div key={i} className={styles.skeletonItem} style={{ opacity: 0.6 - i*0.1 }} />)}
-              </div>
-            ) : monthData.length === 0 ? <EmptyState /> : (
-              <div className={styles.breakdownList}>
-                {[...monthData].sort((a,b) => b.total_amount - a.total_amount).map(item => {
-                  const pct = totalSpend > 0 ? (item.total_amount / totalSpend * 100) : 0
-                  const color = CATEGORY_COLORS[item.category] || '#546e7a'
-                  return (
-                    <div key={item.category}
-                      onClick={() => setSelectedCategory(item)}
-                      className={`${styles.breakdownRow} ${selectedCategory?.category === item.category ? styles.selected : ''}`}
-                      style={{ borderColor: selectedCategory?.category === item.category ? color + '44' : 'transparent' }}
-                    >
-                      <div className={styles.breakdownMeta}>
-                        <div className={styles.breakdownLeft}>
-                          <div className={styles.breakdownDot} style={{ background: color }} />
-                          <span className={styles.breakdownName}>{item.category}</span>
-                          <span className={styles.breakdownTxns}>{item.txn_count} txns</span>
-                        </div>
-                        <span className={styles.breakdownAmt}>{formatINR(item.total_amount)}</span>
-                      </div>
-                      <div className={styles.progressBar}>
-                        <div className={styles.progressFill} style={{ width:`${pct}%`, background: color }} />
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Banner */}
-        <div className={styles.banner}>
-          <div>
-            <p className={styles.bannerTitle}>View all transactions</p>
-            <p className={styles.bannerSub}>Detailed silver table with merchant, category, date and amount</p>
-          </div>
-          <button className={styles.bannerBtn} onClick={() => onNavigate('transactions')}>
-            View transactions →
+  return (
+    <section className={styles.spending} aria-labelledby="month-title">
+      <div className={styles.summary}>
+        <div className={styles.monthBar}>
+          <button type="button" className={styles.step} disabled={!older} onClick={() => onMonth(index + 1)}
+            aria-label={older ? `Previous month, ${formatMonth(older.month)}` : 'No earlier month'}>
+            {older ? formatMonthShort(older.month) : 'Earlier'}
+          </button>
+          <h2 id="month-title" className={styles.monthName}>{formatMonth(current.month)}</h2>
+          <button type="button" className={styles.step} disabled={!newer} onClick={() => onMonth(index - 1)}
+            aria-label={newer ? `Next month, ${formatMonth(newer.month)}` : 'No later month'}>
+            {newer ? formatMonthShort(newer.month) : 'Later'}
           </button>
         </div>
-      </div>
-    </div>
-  )
-}
+        <p className="visually-hidden" aria-live="polite">{formatMonth(current.month)}, month {count - index} of {count}</p>
 
-function ActionBtn({ children, onClick, icon, loading, variant }) {
-  return (
-    <button onClick={onClick} disabled={loading}
-      className={`${styles.actionBtn} ${styles[variant]}`}>
-      {loading ? <span className={styles.miniSpinner} /> : icon}
-      {children}
-    </button>
-  )
-}
-function MiniSpinner() {
-  return <span className={styles.miniSpinner} />
-}
-function EmptyState() {
-  return (
-    <div className={styles.empty}>
-      <span className={styles.emptyIcon}>◈</span>
-      <p className={styles.emptyText}>No data yet — sync Gmail or upload a CSV</p>
-    </div>
+        <div>
+          <p className={`num ${styles.total}`}>{formatINR(monthTotal(current))}</p>
+          <p className={styles.totalNote}>
+            spent across {plural(current.rows.reduce((s, r) => s + r.count, 0) + current.unsure.count, 'payment')}
+            {current.unsure.total > 0 && <>, including {formatINR(current.unsure.total)} not yet categorised</>}
+          </p>
+        </div>
+
+        <div className={styles.summaryLinks}>
+          {reviewCount > 0 && (
+            <Link to="/app/review" className={styles.reviewLink}>
+              Review {plural(reviewCount, 'payment')}
+            </Link>
+          )}
+          <Link to={`/app/transactions?month=${month}`} className="link-arrow">All payments this month</Link>
+        </div>
+      </div>
+
+      <div className={styles.table}>
+        <CategoryBreakdown
+          rows={current.rows}
+          unsure={current.unsure}
+          compact
+          linkFor={(cat) => `/app/transactions?month=${month}&category=${encodeURIComponent(cat)}`}
+          unsureLink="/app/review"
+        />
+      </div>
+    </section>
   )
 }

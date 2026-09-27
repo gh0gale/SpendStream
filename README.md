@@ -36,7 +36,7 @@ SpendStream syncs with your Gmail to automatically detect bank alerts, extract t
 SpendStream processes data through a four-stage pipeline that guarantees integrity and full traceability from raw email to dashboard insight.
 
 ```
-Gmail API / CSV Upload
+Gmail API (bank alert emails)
         │
         ▼
 ┌─────────────────┐
@@ -65,16 +65,18 @@ Gmail API / CSV Upload
 
 SpendStream uses a **hybrid ML approach** that works out of the box and improves over time.
 
-### Cold Start (zero training data)
-Uses **Sentence Transformers (`all-MiniLM-L6-v2`)** with cosine similarity against category "anchor" embeddings. No prior data needed — accurate from day one.
+### Order of decisions
+1. **Your own rule.** Correct a merchant once and every past and future payment to it takes your category, keyed on its UPI payee id. The model is not asked again.
+2. **Shared directory** of merchants several users agreed on (switched off at the current scale).
+3. **The model**, for merchants you have not corrected. Below 50% confidence a row is left uncategorised, and waits in Needs review.
 
-### Supervised Model
-A **Logistic Regression / SGDClassifier** trained on:
-- TF-IDF features (character and word n-grams on merchant names)
-- Transaction metadata: amount, time of day, day of week, frequency
+### The model
+A **logistic regression** over TF-IDF character and word n-grams of the cleaned merchant name, plus amount and time features. Payments to a shop QR code (Paytm, BharatPe, PhonePe merchant QRs) carry a marker, so a shop under its owner's name is not read as a transfer. No torch or sentence embeddings: dropping them cost no accuracy and cut memory from about 600 MB to about 200 MB.
 
-### Online Learning Loop
-User corrections are stored in a `category_feedback` table. A background **Celery task** performs a warm-start refit, so the model progressively learns personal habits — e.g., recognizing a personal UPI handle as "Food" rather than "Transfer".
+**Measured on 132 real, hand-labelled transactions** the model never trained on: 79.5% accuracy (the model before September 2026 scored 38.6%). The shipped model is then retrained on all data, including those rows.
+
+### Learning from corrections
+A correction is stored as a per-user rule in Postgres and applied immediately to your other transactions from the same payee. Corrections never retrain the shared model at request time.
 
 ### Pattern Boosts
 A heuristic layer boosts probability scores based on historical frequency and amount patterns, enabling automatic detection of recurring subscriptions.
@@ -103,7 +105,7 @@ The ML model's "memory" (user history and corrections) was originally in-process
 ### API Performance & 504 Timeouts
 Inline model retraining on user corrections was blocking the FastAPI async event loop, causing gateway timeouts under load.
 
-**Fix:** Offloaded all retraining to a dedicated Celery task. The API responds instantly; model updates happen in the background.
+**Fix:** Retraining was moved off the request path. Since 2026-09-15 corrections do not retrain the model at all; retraining is an offline job (`train_model.py`), gated on a real-data golden set (`retrain.sh`).
 
 ### Serialization Failures
 NumPy types (`np.str_`, `np.float32`) returned by the ML model caused JSON serialization errors during database upserts.
@@ -113,7 +115,7 @@ NumPy types (`np.str_`, `np.float32`) returned by the ML model caused JSON seria
 ### Environment Synchronization
 `scikit-learn` version mismatches between local and production environments caused silent prediction failures where every transaction was categorized as "Other".
 
-**Fix:** Pinned exact versions in `requirements.txt`. Added an `os.path.getmtime` watcher to hot-reload `.pkl` model files across server instances when models are updated.
+**Fix:** Pinned exact versions in `requirements.txt`. An `os.path.getmtime` check also exists in `_load_model`, but it never runs once a model is loaded, so restart the server after retraining.
 
 ---
 

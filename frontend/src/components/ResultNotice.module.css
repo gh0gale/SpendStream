@@ -1,0 +1,14 @@
+.notice {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 8px 8px 8px 16px; margin-bottom: 16px;
+  background: var(--paper-raised); border: 1px solid var(--rule-strong);
+  font-weight: 600;
+  animation: noticeIn var(--dur-short) var(--ease-settle);
+}
+.error { color: var(--stamp); }
+.actions { display: flex; gap: 4px; }
+@keyframes noticeIn { from { opacity: 0; } }
+
+@media (max-width: 768px) {
+  .notice { position: sticky; top: 8px; z-index: 4; }
+}

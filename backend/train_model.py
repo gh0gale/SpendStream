@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 import joblib
 
-from sklearn.linear_model import SGDClassifier
+from sklearn.linear_model import LogisticRegression, SGDClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import LabelEncoder
 from sklearn.utils import resample
@@ -32,6 +32,7 @@ from sklearn.utils.class_weight import compute_class_weight
 from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
 from scipy.sparse import hstack
+
 
 logging.basicConfig(level=logging.INFO, format="[train] %(message)s")
 log = logging.getLogger("train")
@@ -45,20 +46,12 @@ _ML_DIR      = _HERE if os.path.basename(_HERE) == "ml" else os.path.join(_HERE,
 MODEL_PATH   = os.path.join(_ML_DIR, "model_v2.pkl")
 ENCODER_PATH = os.path.join(_ML_DIR, "label_encoder_v2.pkl")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Constants — must match categoriser.py exactly
-# ─────────────────────────────────────────────────────────────────────────────
-
-CATEGORIES = [
-    "Education", "Entertainment", "Food", "Groceries", "Health",
-    "Investment", "Payments", "Shopping", "Subscription",
-    "Transfer", "Transport", "Utilities", "Other",
-]
-
-EMBEDDING_DIM  = 384
-METADATA_DIM   = 5
-TFIDF_CHAR_MAX = 40_000
-TFIDF_WORD_MAX = 20_000
+# Categories, feature sizes, text cleaning and metadata: ml/features.py, shared
+# with prediction and evaluation (2026-09-27; this file used to keep a copy).
+from ml.features import (   # noqa: E402
+    CATEGORIES, EMBEDDING_DIM, METADATA_DIM, TFIDF_CHAR_MAX, TFIDF_WORD_MAX,
+    extract_metadata, input_text, preprocess_text,
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # RAW CASES
@@ -72,7 +65,6 @@ RAW_CASES = [
     ("VPA Swiggy SWIGGY",                           "Food", (60, 800),   (9,  23)),
     ("VPA swiggy@icici SWIGGY",                     "Food", (80, 700),   (9,  23)),
     ("VPA swiggy.stores@axb SWIGGY STORES",         "Food", (90, 600),   (9,  23)),
-    ("VPA Swiggy Instamart SWIGGY INSTAMART",       "Food", (100, 700),  (8,  22)),
     ("VPA swiggypop@ybl SWIGGYPOP",                 "Food", (50, 300),   (11, 15)),
     ("VPA Zomato ZOMATO",                           "Food", (80, 900),   (10, 23)),
     ("VPA zomato@kotak ZOMATO",                     "Food", (100, 800),  (10, 23)),
@@ -429,7 +421,7 @@ RAW_CASES = [
     ("VPA medicinedelivery@ybl MEDICINEDELIVERY",   "Health", (100, 3000),  (8,  22)),
     ("VPA labtest@okaxis LABTEST",                  "Health", (200, 5000),  (7,  18)),
     ("VPA healthcheckup@paytm HEALTHCHECKUP",       "Health", (500, 5000),  (7,  18)),
-    ("VPA paytmqr5hqark@ptys PAYTMQR5HQARK",        "Health", (200, 3000),  (8,  20)),
+    ("VPA paytmqr8lotus@ptys PAYTMQR8LOTUS",        "Health", (200, 3000),  (8,  20)),
 
     # ══════════ UTILITIES (45 cases) ══════════════════════════════════════════
     ("VPA BESCOM BESCOM",                           "Utilities", (200, 6000),  (8,  20)),
@@ -514,15 +506,15 @@ RAW_CASES = [
     ("VPA Ravi Chandrasekhar RAVI CHANDRASEKHAR",   "Transfer", (500, 40000),  (8,  22)),
     ("VPA Lalitha Krishna LALITHA KRISHNA",         "Transfer", (200, 8000),   (8,  22)),
     # Real-looking UPI handles
-    ("VPA ARNAV RAVISHANKAR DUMANE ARNAV RAVISHANKAR DUMANE", "Transfer", (200, 10000),  (8,  22)),
-    ("VPA arnavdumane04@okhdfcbank ARNAVDUMANE04",  "Transfer", (200, 9000),   (8,  22)),
-    ("VPA HARSHIT SAXENA HARSHIT SAXENA",           "Transfer", (100, 5000),   (8,  22)),
-    ("VPA 8368536065@pthdfc 8368536065",            "Transfer", (100, 5000),   (8,  22)),
-    ("VPA Mr SAHIL RAJU SAYYED MR SAHIL RAJU SAYYED", "Transfer", (200, 8000),   (8,  22)),
-    ("VPA ss2002786kgn@okicici SS2002786KGN",       "Transfer", (200, 7000),   (8,  22)),
-    ("VPA RAVINDRA S SHETTY RAVINDRA S SHETTY",     "Transfer", (100, 5000),   (8,  22)),
-    ("VPA paytmqr6woody@ptys PAYTMQR6WOODY",        "Transfer", (100, 5000),   (8,  22)),
-    ("VPA bharatpe.9y0r0e7l3x685328@fbpe BHARATPE 9Y0R0E7L3X685328", "Transfer", (100, 10000),  (8,  22)),
+    ("VPA ANANYA RAVISHANKAR IYER ANANYA RAVISHANKAR IYER", "Transfer", (200, 10000),  (8,  22)),
+    ("VPA ananyaiyer07@okhdfcbank ANANYAIYER07",  "Transfer", (200, 9000),   (8,  22)),
+    ("VPA TARUN KHANNA TARUN KHANNA",           "Transfer", (100, 5000),   (8,  22)),
+    ("VPA 9000000001@pthdfc 9000000001",            "Transfer", (100, 5000),   (8,  22)),
+    ("VPA Mr NIKHIL RAJU PAWAR MR NIKHIL RAJU PAWAR", "Transfer", (200, 8000),   (8,  22)),
+    ("VPA nk2001452xyz@okicici NK2001452XYZ",       "Transfer", (200, 7000),   (8,  22)),
+    ("VPA MAHESH S PRABHU MAHESH S PRABHU",     "Transfer", (100, 5000),   (8,  22)),
+    ("VPA paytmqr4tulip@ptys PAYTMQR4TULIP",        "Transfer", (100, 5000),   (8,  22)),
+    ("VPA bharatpe.3k7m2p9q4r182640@fbpe BHARATPE 3K7M2P9Q4R182640", "Transfer", (100, 10000),  (8,  22)),
     # Generic P2P
     ("VPA sent to friend@upi SENT TO FRIEND",       "Transfer", (100, 20000),  (8,  22)),
     ("VPA payment to@paytm PAYMENT TO",             "Transfer", (100, 30000),  (8,  22)),
@@ -699,16 +691,16 @@ RAW_CASES = [
 
     # ══════════ REAL WORLD SAMPLES (From User Data) ══════════════════════════
     # Food & Groceries
-    ("VPA paytmqr6yuz30@ptys MAHARASHTRIYA MAMLEDAR MISAL RESTAURANT", "Food", (100, 800), (8, 22)),
-    ("VPA q859207477@ybl SPICE EXPRESS",                           "Food", (100, 600), (11, 23)),
-    ("VPA gpay-11256438096@okbizaxis Food Xpress",                 "Food", (100, 500), (11, 23)),
-    ("VPA paytm.s11h0ar@pty NBC Vikhroli W",                       "Food", (100, 500), (10, 22)),
-    ("VPA paytmqr6oqyo3@ptys Baba Mutton shop",                    "Groceries", (200, 1500), (8, 20)),
+    ("VPA paytmqr2njw85@ptys MAHARASHTRIYA MAMLEDAR MISAL RESTAURANT", "Food", (100, 800), (8, 22)),
+    ("VPA q637205914@ybl SPICE EXPRESS",                           "Food", (100, 600), (11, 23)),
+    ("VPA gpay-70418293355@okbizaxis Food Xpress",                 "Food", (100, 500), (11, 23)),
+    ("VPA paytm.k42v9be@pty NBC Vikhroli W",                       "Food", (100, 500), (10, 22)),
+    ("VPA paytmqr3azbn8@ptys Baba Mutton shop",                    "Groceries", (200, 1500), (8, 20)),
     
     # Entertainment & Health
     ("VPA district.movies@hdfcbank ORBGEN TECHNOLOGIES PRIVATE LIMITED DISTRICT MOVIE UPI", "Entertainment", (150, 1000), (10, 23)),
-    ("VPA paytmqr5hqark@ptys GLOBAL MEDICAL AND G",                "Health", (200, 5000), (8, 22)),
-    ("VPA paytmqri4oo0jyoje@paytm GLOBAL MEDICAL AND G",           "Health", (200, 5000), (8, 22)),
+    ("VPA paytmqr8lotus@ptys GLOBAL MEDICAL AND G",                "Health", (200, 5000), (8, 22)),
+    ("VPA paytmqrz8mm2kwnrc@paytm GLOBAL MEDICAL AND G",           "Health", (200, 5000), (8, 22)),
     
     # Investment & Subscriptions
     ("VPA groww.rzpiccl.brk@validhdfc Next Billion Technology Private Limited RZP", "Investment", (500, 50000), (9, 15)),
@@ -717,15 +709,15 @@ RAW_CASES = [
     ("VPA appleservices.bdsi@hdfcbank APPLE MEDIA SERVICES",       "Subscription", (99, 999), (0, 23)),
     
     # Real-World Personal Transfers
-    ("VPA datapointavni@oksbi AVNI HIREN SANGHVI",                 "Transfer", (100, 15000), (8, 22)),
-    ("VPA cherylblannypinto@okhdfcbank CHERYL BLANNY PINTO",       "Transfer", (100, 15000), (8, 22)),
-    ("VPA gawandkrrish5@okhdfcbank KRRISH GAJENDRA GAWAND",        "Transfer", (100, 15000), (8, 22)),
-    ("VPA siddhantpatel0712-1@okhdfcbank SIDDHANT AJAYKUMAR PATEL", "Transfer", (100, 15000), (8, 22)),
-    ("VPA mukhtaransaria337@oksbi MUKHTAR GAFUR ANSARI",           "Transfer", (100, 15000), (8, 22)),
-    ("VPA paytm.s1uytc4@pty TARUN DILIP NAIK",                     "Transfer", (100, 15000), (8, 22)),
-    ("VPA paytmqr67wbsm@ptys Bheru Singh Solanki",                 "Transfer", (100, 15000), (8, 22)),
-    ("VPA paytmqr5wr2s9@ptys Gopal Ramesh Chautala",               "Transfer", (100, 15000), (8, 22)),
-    ("VPA q192442722@ybl MAQSOOD WASIULLAH SHAIKH",                "Transfer", (100, 15000), (8, 22)),
+    ("VPA datapointmeera@oksbi MEERA HITESH SHAH",                 "Transfer", (100, 15000), (8, 22)),
+    ("VPA dianafonseca@okhdfcbank DIANA BRENDA FONSECA",       "Transfer", (100, 15000), (8, 22)),
+    ("VPA kadamrohan5@okhdfcbank ROHAN GAJANAN KADAM",        "Transfer", (100, 15000), (8, 22)),
+    ("VPA pratikdesai0413-1@okhdfcbank PRATIK ANILKUMAR DESAI", "Transfer", (100, 15000), (8, 22)),
+    ("VPA vinodpatelkar219@oksbi IRFAN GAFUR SHAIKH",           "Transfer", (100, 15000), (8, 22)),
+    ("VPA paytm.t7ophd2@pty SAGAR DILIP RANE",                     "Transfer", (100, 15000), (8, 22)),
+    ("VPA paytmqr21krsn@ptys Mohan Singh Rathore",                 "Transfer", (100, 15000), (8, 22)),
+    ("VPA paytmqr9de4t1@ptys Suresh Ramesh Bhandari",               "Transfer", (100, 15000), (8, 22)),
+    ("VPA q504817360@ybl RASHID HABIBULLAH KHAN",                "Transfer", (100, 15000), (8, 22)),
 
     # ──── Additional real-world patterns from failing production data ──────────
     # Transport — Indian Railways UTS (local train unreserved tickets)
@@ -752,71 +744,170 @@ RAW_CASES = [
     ("GLOBAL MEDICAL",                                             "Health", (100, 5000), (8, 22)),
 
     # Transfer — person names observed in failing data
-    ("RAVINDRA S SHETTY",                                          "Transfer", (50, 20000), (8, 22)),
-    ("VPA paytmqr6woody@ptys RAVINDRA S",                          "Transfer", (50, 20000), (8, 22)),
-    ("SIDDHANT AJAYKUMAR PATEL",                                   "Transfer", (50, 20000), (8, 22)),
-    ("VRUSHTI KUNAL GANDHI",                                       "Transfer", (50, 10000), (8, 22)),
-    ("VPA vrushtigandhi3007@okidfcbank VRUSHTI KUNAL GANDHI",      "Transfer", (50, 10000), (8, 22)),
-    ("Mr SAHIL RAJU SAYYED",                                       "Transfer", (50, 10000), (8, 22)),
-    ("SAHIL RAJU SAYYED",                                          "Transfer", (50, 10000), (8, 22)),
-    ("AJITKUMAR SUBHASHCHANDRA GUPT",                              "Transfer", (50, 20000), (8, 22)),
+    ("MAHESH S PRABHU",                                          "Transfer", (50, 20000), (8, 22)),
+    ("VPA paytmqr4tulip@ptys RAVINDRA S",                          "Transfer", (50, 20000), (8, 22)),
+    ("PRATIK ANILKUMAR DESAI",                                   "Transfer", (50, 20000), (8, 22)),
+    ("AARTI KUNAL MEHTA",                                       "Transfer", (50, 10000), (8, 22)),
+    ("VPA aartimehta3007@okidfcbank AARTI KUNAL MEHTA",      "Transfer", (50, 10000), (8, 22)),
+    ("Mr NIKHIL RAJU PAWAR",                                       "Transfer", (50, 10000), (8, 22)),
+    ("NIKHIL RAJU PAWAR",                                          "Transfer", (50, 10000), (8, 22)),
+    ("VIJAYKUMAR RAMCHANDRA JOSH",                              "Transfer", (50, 20000), (8, 22)),
 
+
+    # ---- 4.7/4.9 coverage: UPI handle families and edge cases --------------
+    # Every handle suffix below appears on merchants from several different
+    # categories on purpose: the handle must not be evidence, only the name.
+
+    ("VPA swiggy@ybl SWIGGY", "Food", (80, 700), (9, 23)),
+    ("VPA bigbasket@ybl BIGBASKET", "Groceries", (300, 3000), (8, 21)),
+    ("VPA zomato@ibl ZOMATO", "Food", (80, 800), (10, 23)),
+    ("VPA netflix@ibl NETFLIX INDIA", "Subscription", (149, 999), (0, 23)),
+    ("VPA blinkit@axl BLINKIT", "Groceries", (150, 2000), (7, 23)),
+    ("VPA unacademy@axl UNACADEMY", "Education", (500, 30000), (8, 22)),
+    ("VPA bigbasket@yesg BIGBASKET", "Groceries", (300, 3000), (8, 21)),
+    ("VPA flipkart@yesg FLIPKART", "Shopping", (200, 9000), (0, 23)),
+    ("VPA amazon@okaxis AMAZON", "Shopping", (200, 8000), (0, 23)),
+    ("VPA apollo@okaxis APOLLO PHARMACY", "Health", (100, 4000), (7, 22)),
+    ("VPA flipkart@okhdfcbank FLIPKART", "Shopping", (200, 9000), (0, 23)),
+    ("VPA swiggy@okhdfcbank SWIGGY", "Food", (80, 700), (9, 23)),
+    ("VPA uber@okicici UBER INDIA", "Transport", (60, 1200), (0, 23)),
+    ("VPA irctc@oksbi IRCTC RAIL", "Transport", (200, 4000), (6, 22)),
+    ("VPA airtel@oksbi AIRTEL PREPAID", "Utilities", (99, 1500), (0, 23)),
+    ("VPA groww@paytm GROWW", "Investment", (500, 50000), (9, 16)),
+    ("VPA blinkit@paytm BLINKIT", "Groceries", (150, 2000), (7, 23)),
+    ("VPA zerodha@ptys ZERODHA BROKING", "Investment", (500, 90000), (9, 16)),
+    ("VPA netflix@ptybl NETFLIX INDIA", "Subscription", (149, 999), (0, 23)),
+    ("VPA bookmyshow@ptybl BOOKMYSHOW", "Entertainment", (150, 2500), (9, 23)),
+    ("VPA spotify@pthdfc SPOTIFY", "Subscription", (59, 399), (0, 23)),
+    ("VPA amazon@pthdfc AMAZON", "Shopping", (200, 8000), (0, 23)),
+    ("VPA apollo@ptaxis APOLLO PHARMACY", "Health", (100, 4000), (7, 22)),
+    ("VPA spotify@ptaxis SPOTIFY", "Subscription", (59, 399), (0, 23)),
+    ("VPA pharmeasy@upi PHARMEASY", "Health", (100, 3000), (7, 22)),
+    ("VPA cred@upi CRED BILL PAYMENT", "Payments", (500, 60000), (0, 23)),
+    ("VPA airtel@bhim AIRTEL PREPAID", "Utilities", (99, 1500), (0, 23)),
+    ("VPA uber@bhim UBER INDIA", "Transport", (60, 1200), (0, 23)),
+    ("VPA bescom@apl BESCOM ELECTRICITY", "Utilities", (300, 6000), (7, 22)),
+    ("VPA pharmeasy@apl PHARMEASY", "Health", (100, 3000), (7, 22)),
+    ("VPA bookmyshow@yapl BOOKMYSHOW", "Entertainment", (150, 2500), (9, 23)),
+    ("VPA zomato@yapl ZOMATO", "Food", (80, 800), (10, 23)),
+    ("VPA unacademy@fbpe UNACADEMY", "Education", (500, 30000), (8, 22)),
+    ("VPA groww@fbpe GROWW", "Investment", (500, 50000), (9, 16)),
+    ("VPA cred@jupiteraxis CRED BILL PAYMENT", "Payments", (500, 60000), (0, 23)),
+    ("VPA bescom@jupiteraxis BESCOM ELECTRICITY", "Utilities", (300, 6000), (7, 22)),
+    ("VPA swiggy@fifederal SWIGGY", "Food", (80, 700), (9, 23)),
+    ("VPA bigbasket@fifederal BIGBASKET", "Groceries", (300, 3000), (8, 21)),
+    ("VPA zomato@naviaxis ZOMATO", "Food", (80, 800), (10, 23)),
+    ("VPA netflix@naviaxis NETFLIX INDIA", "Subscription", (149, 999), (0, 23)),
+    ("VPA blinkit@slc BLINKIT", "Groceries", (150, 2000), (7, 23)),
+    ("VPA unacademy@slc UNACADEMY", "Education", (500, 30000), (8, 22)),
+    ("VPA bigbasket@ikwik BIGBASKET", "Groceries", (300, 3000), (8, 21)),
+    ("VPA flipkart@ikwik FLIPKART", "Shopping", (200, 9000), (0, 23)),
+    ("VPA amazon@freecharge AMAZON", "Shopping", (200, 8000), (0, 23)),
+    ("VPA apollo@freecharge APOLLO PHARMACY", "Health", (100, 4000), (7, 22)),
+    ("VPA flipkart@waaxis FLIPKART", "Shopping", (200, 9000), (0, 23)),
+    ("VPA swiggy@waaxis SWIGGY", "Food", (80, 700), (9, 23)),
+    ("VPA uber@waicici UBER INDIA", "Transport", (60, 1200), (0, 23)),
+    ("VPA irctc@wahdfcbank IRCTC RAIL", "Transport", (200, 4000), (6, 22)),
+    ("VPA airtel@wahdfcbank AIRTEL PREPAID", "Utilities", (99, 1500), (0, 23)),
+    ("VPA groww@sbi GROWW", "Investment", (500, 50000), (9, 16)),
+    ("VPA blinkit@sbi BLINKIT", "Groceries", (150, 2000), (7, 23)),
+    ("VPA zerodha@hdfcbank ZERODHA BROKING", "Investment", (500, 90000), (9, 16)),
+    ("VPA netflix@axisbank NETFLIX INDIA", "Subscription", (149, 999), (0, 23)),
+    ("VPA bookmyshow@axisbank BOOKMYSHOW", "Entertainment", (150, 2500), (9, 23)),
+    ("VPA spotify@icici SPOTIFY", "Subscription", (59, 399), (0, 23)),
+    ("VPA amazon@icici AMAZON", "Shopping", (200, 8000), (0, 23)),
+    ("VPA apollo@kotak APOLLO PHARMACY", "Health", (100, 4000), (7, 22)),
+    ("VPA spotify@kotak SPOTIFY", "Subscription", (59, 399), (0, 23)),
+    ("VPA pharmeasy@indus PHARMEASY", "Health", (100, 3000), (7, 22)),
+    ("VPA cred@indus CRED BILL PAYMENT", "Payments", (500, 60000), (0, 23)),
+    ("VPA airtel@yesbank AIRTEL PREPAID", "Utilities", (99, 1500), (0, 23)),
+    ("VPA uber@yesbank UBER INDIA", "Transport", (60, 1200), (0, 23)),
+    ("VPA bescom@idfcbank BESCOM ELECTRICITY", "Utilities", (300, 6000), (7, 22)),
+    ("VPA pharmeasy@idfcbank PHARMEASY", "Health", (100, 3000), (7, 22)),
+    ("VPA bookmyshow@federal BOOKMYSHOW", "Entertainment", (150, 2500), (9, 23)),
+    ("VPA zomato@federal ZOMATO", "Food", (80, 800), (10, 23)),
+    ("VPA unacademy@rbl UNACADEMY", "Education", (500, 30000), (8, 22)),
+    ("VPA groww@rbl GROWW", "Investment", (500, 50000), (9, 16)),
+    ("VPA cred@pnb CRED BILL PAYMENT", "Payments", (500, 60000), (0, 23)),
+    ("VPA bescom@pnb BESCOM ELECTRICITY", "Utilities", (300, 6000), (7, 22)),
+    ("VPA swiggy@unionbank SWIGGY", "Food", (80, 700), (9, 23)),
+    ("VPA bigbasket@unionbank BIGBASKET", "Groceries", (300, 3000), (8, 21)),
+    ("VPA zomato@barodampay ZOMATO", "Food", (80, 800), (10, 23)),
+    ("VPA netflix@barodampay NETFLIX INDIA", "Subscription", (149, 999), (0, 23)),
+    ("VPA blinkit@cnrb BLINKIT", "Groceries", (150, 2000), (7, 23)),
+    ("VPA unacademy@cnrb UNACADEMY", "Education", (500, 30000), (8, 22)),
+    ("VPA bigbasket@indianbank BIGBASKET", "Groceries", (300, 3000), (8, 21)),
+    ("VPA flipkart@indianbank FLIPKART", "Shopping", (200, 9000), (0, 23)),
+    ("VPA amazon@centralbank AMAZON", "Shopping", (200, 8000), (0, 23)),
+    ("VPA apollo@centralbank APOLLO PHARMACY", "Health", (100, 4000), (7, 22)),
+    ("VPA flipkart@dbs FLIPKART", "Shopping", (200, 9000), (0, 23)),
+    ("VPA swiggy@dbs SWIGGY", "Food", (80, 700), (9, 23)),
+    ("VPA uber@aubank UBER INDIA", "Transport", (60, 1200), (0, 23)),
+    ("VPA irctc@equitas IRCTC RAIL", "Transport", (200, 4000), (6, 22)),
+    ("VPA airtel@equitas AIRTEL PREPAID", "Utilities", (99, 1500), (0, 23)),
+    ("VPA groww@idbi GROWW", "Investment", (500, 50000), (9, 16)),
+    ("VPA blinkit@idbi BLINKIT", "Groceries", (150, 2000), (7, 23)),
+    ("VPA zerodha@uco ZERODHA BROKING", "Investment", (500, 90000), (9, 16)),
+    ("VPA paytmqr281005050101@paytm SHREE GANESH KIRANA AND GENERAL STORES", "Groceries", (100, 3000), (7, 22)),
+    ("VPA paytmqr5x8k2p@ptys ANNAPURNA TIFFIN SERVICE", "Food", (60, 500), (7, 22)),
+    ("VPA paytmqr1n4v7z@ptys SRI SAI MEDICALS", "Health", (50, 3000), (7, 22)),
+    ("VPA paytmqr9k3m1t@ptys NEW STAR TAILORS", "Shopping", (100, 4000), (9, 21)),
+    ("VPA q721904553@ybl BOMBAY CHAAT CORNER", "Food", (40, 400), (10, 23)),
+    ("VPA q338271649@ybl SANJAY VEGETABLE STALL", "Groceries", (30, 800), (6, 21)),
+    ("VPA q905412387@ybl CITY OPTICALS", "Health", (200, 6000), (9, 21)),
+    ("VPA gpay-11409872263@okbizaxis GREEN LEAF SALAD BAR", "Food", (80, 600), (10, 22)),
+    ("VPA gpay-30518274901@okbizaxis SUNRISE STATIONERY", "Shopping", (20, 900), (9, 21)),
+    ("VPA bharatpe.8w2k1m7p390214@fbpe VARIETY SNACKS CENTRE", "Food", (30, 400), (7, 23)),
+    ("VPA bharatpe.5t9n3r2q118745@fbpe DAILY NEEDS SUPERMARKET", "Groceries", (100, 2500), (7, 22)),
+    ("VPA razorpay.rzp@icici ACME ONLINE SERVICES", "Payments", (100, 9000), (0, 23)),
+    ("VPA cultfit.rzp@hdfcbank CULT FITNESS", "Health", (500, 6000), (5, 22)),
+    ("VPA meesho.rzp@axisbank MEESHO ORDER", "Shopping", (100, 3000), (0, 23)),
+    ("VPA netflix@ptys", "Subscription", (149, 999), (0, 23)),
+    ("VPA dmart@ybl", "Groceries", (200, 4000), (8, 22)),
+    ("VPA rapido@axl", "Transport", (30, 400), (0, 23)),
+    ("swiggy@okaxis SWIGGY", "Food", (80, 700), (9, 23)),
+    ("myntra@ptys MYNTRA", "Shopping", (300, 6000), (0, 23)),
+    ("jio@upi JIO RECHARGE", "Utilities", (149, 1200), (0, 23)),
+    ("BIGBASKET DAILY", "Groceries", (100, 2000), (6, 22)),
+    ("PVR INOX LIMITED", "Entertainment", (150, 2000), (9, 23)),
+    ("TATA 1MG", "Health", (100, 3000), (7, 22)),
+    ("VPA SwiGGy@YBL Swiggy Limited", "Food", (80, 700), (9, 23)),
+    ("vpa amazon@apl amazon india", "Shopping", (200, 8000), (0, 23)),
+    ("VPA 9812345670@ybl ANIL KUMAR VERMA", "Transfer", (100, 20000), (7, 23)),
+    ("VPA 9004587321@paytm SUNITA R RAO", "Transfer", (100, 15000), (7, 23)),
+    ("VPA 8801234567@upi DEEPAK JOSHI", "Transfer", (100, 25000), (7, 23)),
+    ("VPA 7700114488@axl KAVYA NAIR", "Transfer", (100, 12000), (7, 23)),
+    ("VPA priya.iyer.98@okhdfcbank PRIYA IYER", "Transfer", (100, 9000), (7, 23)),
+    ("VPA karan-malhotra1@ybl KARAN MALHOTRA", "Transfer", (200, 30000), (7, 23)),
+    ("VPA rohan_verma_07@okicici ROHAN VERMA", "Transfer", (200, 22000), (7, 23)),
+    ("VPA paytmqr7h2k9w@ptys SHREE BALAJI PROVISION AND G", "Groceries", (100, 2500), (7, 22)),
+    ("VPA q114857392@ybl NEW ENGLAND RESTAURANT AND B", "Food", (150, 1500), (11, 23)),
+    ("UPI AUTOPAY NETFLIX SUBSCRIPTION", "Subscription", (149, 999), (0, 23)),
+    ("UPI MANDATE SPOTIFY PREMIUM", "Subscription", (59, 399), (0, 23)),
+    ("VPA hdfcbank@hdfcbank UPI AUTOPAY SIP GROWW", "Investment", (500, 25000), (0, 23)),
+    ("IMPS P2A TRANSFER TARUN KHANNA", "Transfer", (500, 50000), (0, 23)),
+    ("NEFT CR HDFC MAHESH S PRABHU", "Transfer", (500, 90000), (0, 23)),
+    ("RTGS TRANSFER VIJAY TRADERS", "Payments", (5000, 200000), (9, 18)),
+    ("M/S SHARMA GENERAL STORE", "Groceries", (50, 2000), (7, 22)),
+    ("SHREE GANESH KIRANA AND GEN STORES", "Groceries", (50, 2500), (7, 22)),
+    ("D-MART AVENUE SUPERMARTS LTD", "Groceries", (300, 6000), (8, 22)),
+    ("CAFE COFFEE DAY - VIKHROLI", "Food", (100, 800), (8, 22)),
+    ("VPA zz9q7x2w@okaxis", "Other", (50, 3000), (0, 23)),
+    ("VPA zz9q7x2w@ybl", "Other", (50, 3000), (0, 23)),
+    ("VPA zz9q7x2w@paytm", "Other", (50, 3000), (0, 23)),
+    ("VPA zz9q7x2w@upi", "Other", (50, 3000), (0, 23)),
+    ("VPA zz9q7x2w@icici", "Other", (50, 3000), (0, 23)),
+    ("VPA zz9q7x2w@hdfcbank", "Other", (50, 3000), (0, 23)),
+    ("VPA zz9q7x2w@axl", "Other", (50, 3000), (0, 23)),
+    ("VPA zz9q7x2w@ptys", "Other", (50, 3000), (0, 23)),
+    ("VPA abcd1234efgh@upi", "Other", (50, 5000), (0, 23)),
+    ("VPA 000000000@paytm", "Other", (50, 2000), (0, 23)),
+    ("VPA temp.test.user@ybl", "Other", (50, 2000), (0, 23)),
+    ("UNKNOWN MERCHANT PAYMENT", "Other", (50, 5000), (0, 23)),
 ]
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Preprocessing — must be identical to categoriser.py
-# ─────────────────────────────────────────────────────────────────────────────
-
-_HANDLE_PREFIX = _re.compile(r"^VPA\s+", _re.IGNORECASE)
-_UPI_HANDLE    = _re.compile(r"\S+@\S+\s*")
-_NOISE_WORDS   = _re.compile(
-    r"\b(pvt|ltd|pte|inc|llp|llc|private|limited|"
-    r"payment|online|india|tech|services|w|g)\b",
-    _re.IGNORECASE,
-)
-
-
-def preprocess_text(text: str) -> str:
-    if not isinstance(text, str):
-        return ""
-    text    = _HANDLE_PREFIX.sub("", text).strip()
-    after   = _UPI_HANDLE.sub("", text).strip()
-    working = after if len(after) >= 3 else text
-
-    # Strip payment gateway prefixes (must match categoriser.py exactly)
-    working = _re.sub(r"\b(paytmqr|gpay-|paytm\.)[a-zA-Z0-9-]+\b", " ", working, flags=_re.IGNORECASE)
-
-    working = _re.sub(r"[/@.]",      " ", working)
-    working = _re.sub(r"\b\d{4,}\b", " ", working)
-    working = _NOISE_WORDS.sub(" ",   working)
-    working = _re.sub(r"\s+",        " ", working).strip()
-    return working.lower()
-
-    
-    
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Metadata — must be identical to categoriser.py
-# ─────────────────────────────────────────────────────────────────────────────
-
-def extract_metadata(amount: float, timestamp=None, tx_frequency_30d: int = 0) -> np.ndarray:
-    log_amount = float(np.log1p(max(amount, 0)))
-    if timestamp is not None:
-        if isinstance(timestamp, str):
-            try:   ts = datetime.fromisoformat(timestamp[:19])
-            except Exception: ts = datetime.now(timezone.utc)
-        else:
-            ts = timestamp
-    else:
-        ts = datetime.now(timezone.utc)
-    hour_sin  = float(np.sin(2 * np.pi * ts.hour / 24))
-    hour_cos  = float(np.cos(2 * np.pi * ts.hour / 24))
-    dow_norm  = ts.weekday() / 6.0
-    freq_norm = float(np.log1p(tx_frequency_30d)) / np.log1p(30)
-    return np.array([log_amount, hour_sin, hour_cos, dow_norm, freq_norm], dtype=np.float32)
-
-    
+# A payee id, for making augmented variants of a template (not a feature).
+_UPI_HANDLE = _re.compile(r"\S+@\S+\s*")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -904,7 +995,39 @@ def get_embeddings(texts: list[str]) -> np.ndarray:
 # Training
 # ─────────────────────────────────────────────────────────────────────────────
 
-def train(samples_per_case: int = 40, seed: int = 42):
+def load_extra(path: str) -> pd.DataFrame:
+    """
+    Extra labelled rows (for example ml/data/private_train.csv from
+    build_golden_set.py): columns raw_text, category, amount, timestamp.
+    raw_text is the receiver as gmail_parser returns it. A blank timestamp is
+    unknown, not midnight. Frequency is unknown for these rows, so 0.
+    """
+    extra = pd.read_csv(path, dtype={"raw_text": str, "category": str, "timestamp": str})
+    unknown = sorted(set(extra["category"]) - set(CATEGORIES))
+    if unknown:
+        raise SystemExit(f"{path}: categories not in CATEGORIES: {unknown}")
+    extra = extra.dropna(subset=["raw_text"]).drop_duplicates()
+    return pd.DataFrame({
+        "raw_text":  extra["raw_text"],
+        "category":  extra["category"],
+        "amount":    pd.to_numeric(extra["amount"], errors="coerce").fillna(0.0),
+        "timestamp": [t if isinstance(t, str) and t else None for t in extra["timestamp"]],
+        "freq_30d":  0,
+    })
+
+
+def train(samples_per_case: int = 40, seed: int = 42, classifier: str = "logreg",
+          extra_path: str | None = None, pipeline_input: bool = True,
+          use_embeddings: bool = False):
+    """
+    Train from scratch. `classifier` is "sgd" (the original) or "logreg" (4.9).
+
+    Which one ships is a decision for the evaluation set (4.8), not for the
+    validation score printed below: that validation is a random split of
+    augmented copies of the same templates, so both models are scored on
+    near-duplicates of what they memorised and both look better than they are.
+    Compare them with evaluate_model.py on real transactions.
+    """
     t0 = time.perf_counter()
     log.info("=" * 62)
     log.info("UPI Categoriser — Training")
@@ -913,6 +1036,10 @@ def train(samples_per_case: int = 40, seed: int = 42):
     log.info("=" * 62)
 
     df = build_dataset(samples_per_case, seed)
+    if extra_path:
+        extra = load_extra(extra_path)
+        log.info(f"Extra data: {len(extra)} rows from {extra_path}")
+        df = pd.concat([df, extra], ignore_index=True).sample(frac=1, random_state=seed)
 
     log.info("\nClass distribution (raw):")
     counts = df["category"].value_counts()
@@ -930,7 +1057,11 @@ def train(samples_per_case: int = 40, seed: int = 42):
     df = pd.concat(parts, ignore_index=True).sample(frac=1, random_state=seed)
     log.info(f"After balance: {len(df)} rows")
 
-    processed = [preprocess_text(t) for t in df["raw_text"]]
+    # pipeline_input: learn from the cleaned merchant name, which is what
+    # etl.run_categorise_silver feeds the model at inference, instead of the
+    # raw receiver string.
+    processed = [input_text(t) for t in df["raw_text"]] if pipeline_input \
+                else [preprocess_text(t) for t in df["raw_text"]]
 
     le = LabelEncoder()
     le.fit(CATEGORIES)
@@ -950,14 +1081,18 @@ def train(samples_per_case: int = 40, seed: int = 42):
     word_f      = tfidf_word.fit_transform(processed)
     text_sparse = hstack([char_f, word_f]) # <-- Kept as sparse matrix!
 
-    emb_ok = _load_emb()
+    # use_embeddings=False trains with the MiniLM block zeroed, so inference
+    # can skip torch entirely (the bundle records it; categoriser.py obeys).
+    emb_ok = use_embeddings and _load_emb()
     emb    = get_embeddings(processed) if emb_ok else \
              np.zeros((len(processed), EMBEDDING_DIM), dtype=np.float32)
 
     log.info("Building metadata …")
     meta = np.zeros((len(df), METADATA_DIM), dtype=np.float32)
     for j, row in enumerate(df.itertuples()):
-        meta[j] = extract_metadata(float(row.amount), row.timestamp, int(row.freq_30d))
+        # Blank timestamps come through pandas as NaN/NaT: unknown, like None.
+        ts = row.timestamp if isinstance(row.timestamp, (str, datetime)) and not pd.isna(row.timestamp) else None
+        meta[j] = extract_metadata(float(row.amount), ts, int(row.freq_30d))
 
     log.info("Stacking features into sparse matrix (for memory efficiency)...")
     # We use sparse here to split the data without OOM, but we MUST
@@ -977,17 +1112,30 @@ def train(samples_per_case: int = 40, seed: int = 42):
     cw_dict       = dict(zip(classes_arr, class_weights))
     sw            = np.array([cw_dict[c] for c in y_tr], dtype=np.float32)
 
-    log.info("Training SGDClassifier (log_loss) in dense mini-batches …")
-    clf = SGDClassifier(loss="log_loss", max_iter=1000, tol=1e-4,
-                        random_state=seed, n_jobs=-1)
-                        
-    # ── CRITICAL: We must train using dense arrays (not sparse) so inference works ──
     batch_size = 2000
-    for i in range(0, X_tr.shape[0], batch_size):
-        X_batch = X_tr[i:i+batch_size].toarray().astype(np.float32)
-        y_batch = y_tr[i:i+batch_size]
-        sw_batch = sw[i:i+batch_size]
-        clf.partial_fit(X_batch, y_batch, classes=classes_arr, sample_weight=sw_batch)
+
+    if classifier == "logreg":
+        # 4.9: one fit over the whole training set, on the sparse matrix, with
+        # no dense copy. The mini-batch alternative below makes a single pass
+        # over each batch, which is likely undertrained — that is the thing
+        # being compared. Sparse training is safe for inference: the model only
+        # needs the same number of features, and sparse and dense predict_proba
+        # were measured to agree to 7e-6 on this feature stack (2026-09-15).
+        log.info("Training LogisticRegression (multinomial) on sparse features …")
+        clf = LogisticRegression(max_iter=1000, class_weight="balanced",
+                                 n_jobs=-1, random_state=seed)
+        clf.fit(X_tr, y_tr)
+    else:
+        log.info("Training SGDClassifier (log_loss) in dense mini-batches …")
+        clf = SGDClassifier(loss="log_loss", max_iter=1000, tol=1e-4,
+                            random_state=seed, n_jobs=-1)
+
+        # ── CRITICAL: We must train using dense arrays (not sparse) so inference works ──
+        for i in range(0, X_tr.shape[0], batch_size):
+            X_batch = X_tr[i:i+batch_size].toarray().astype(np.float32)
+            y_batch = y_tr[i:i+batch_size]
+            sw_batch = sw[i:i+batch_size]
+            clf.partial_fit(X_batch, y_batch, classes=classes_arr, sample_weight=sw_batch)
 
     log.info("Evaluating on validation set...")
     # Evaluate using dense array as well
@@ -1000,25 +1148,21 @@ def train(samples_per_case: int = 40, seed: int = 42):
     print()
     print(classification_report(y_val, y_pred, target_names=le.classes_, zero_division=0))
 
-    # ── Preserve previously learned online corrections from existing pkl  ──────
-    prev_online_samples = 0
-    if os.path.exists(MODEL_PATH):
-        try:
-            prev = joblib.load(MODEL_PATH)
-            prev_online_samples = prev.get("online_samples_applied", 0)
-            log.info(f"Preserving {prev_online_samples} previously learned corrections from old model")
-        except Exception as e:
-            log.warning(f"Could not read previous model for preservation: {e}")
+    # No "online samples" are carried forward. The online refit was removed on
+    # 2026-09-15, so nothing updates a model after training; copying the old
+    # file's counter onto a freshly trained model made it claim corrections it
+    # had never seen, and /model-info published that claim.
 
     os.makedirs(_ML_DIR, exist_ok=True)
     joblib.dump({
         "clf":                    clf,
+        "classifier":             classifier,     # 4.9: which one produced this file
         "tfidf_char":             tfidf_char,
         "tfidf_word":             tfidf_word,
         "embedding_dim":          EMBEDDING_DIM,
+        "uses_embeddings":        bool(emb_ok),
         "metadata_dim":           METADATA_DIM,
         "trained_at":             datetime.now(timezone.utc).isoformat(),
-        "online_samples_applied": prev_online_samples,
         "training_rows":          len(df),
         "cases_count":            len(RAW_CASES),
     }, MODEL_PATH)
@@ -1071,18 +1215,18 @@ SMOKE_CASES = [
     ("1mg@icici",                             450,     20,   "Health"),
     ("Fortis Healthcare",                     5000,    11,   "Health"),
     ("cultfit@icici",                         2000,    7,    "Health"),
-    ("paytmqr5hqark@ptys GLOBAL MEDICAL",     500,     14,   "Health"),
+    ("paytmqr8lotus@ptys GLOBAL MEDICAL",     500,     14,   "Health"),
     ("bescom@paytm",                          1800,    10,   "Utilities"),
     ("airtel@axisbank",                       599,     11,   "Utilities"),
     ("jio@rjio Jio Recharge",                 239,     14,   "Utilities"),
     ("JioFiber",                              999,     10,   "Utilities"),
     ("bescom@hdfcbank BESCOM ELECTRICITY",    2200,    10,   "Utilities"),
     ("Rahul Sharma",                          500,     18,   "Transfer"),
-    ("arnavdumane04@okhdfcbank",              2000,    19,   "Transfer"),
+    ("ananyaiyer07@okhdfcbank",              2000,    19,   "Transfer"),
     ("rent@upi",                              12000,   2,    "Transfer"),
-    ("paytmqr6woody@ptys RAVINDRA S SHETTY",  300,     17,   "Transfer"),
-    ("8368536065@pthdfc HARSHIT SAXENA",       1000,    15,   "Transfer"),
-    ("bharatpe.9y0r0e7l3x685328@fbpe SAJAHAN", 400,    16,   "Transfer"),
+    ("paytmqr4tulip@ptys MAHESH S PRABHU",  300,     17,   "Transfer"),
+    ("9000000001@pthdfc TARUN KHANNA",       1000,    15,   "Transfer"),
+    ("bharatpe.3k7m2p9q4r182640@fbpe IMRAN", 400,    16,   "Transfer"),
     ("bookmyshow@hdfcbank BookMyShow",         600,    19,   "Entertainment"),
     ("dream11@ybl",                           500,     21,   "Entertainment"),
     ("PVR Cinemas",                           1200,    19,   "Entertainment"),
@@ -1098,26 +1242,19 @@ SMOKE_CASES = [
 
 
 def smoke_test():
+    """Hand-written cases through the app's own prediction code (ml/categoriser.py). Inflated: see evaluate_model.py."""
+    from ml import categoriser
     log.info("\n── Smoke test ──────────────────────────────────────────────────")
-    bundle = joblib.load(MODEL_PATH)
-    le     = joblib.load(ENCODER_PATH)
-    clf    = bundle["clf"]
-    tchar  = bundle["tfidf_char"]
-    tword  = bundle["tfidf_word"]
-    _load_emb()
+    model = categoriser.load(MODEL_PATH, ENCODER_PATH)
+    if model is None:
+        log.info("Smoke test skipped: the model could not be loaded by the app (see the log above).")
+        return
 
     passed = failed = 0
     for raw, amount, hour, expected in SMOKE_CASES:
-        ts   = datetime(2024, 6, 15, hour, 30, tzinfo=timezone.utc)
-        proc = preprocess_text(raw)
-        td   = hstack([tchar.transform([proc]),
-                       tword.transform([proc])]).toarray().astype(np.float32)
-        emb  = _emb_model.encode([proc]) if _emb_model else \
-               np.zeros((1, EMBEDDING_DIM), dtype=np.float32)
-        X    = np.concatenate([td, emb,
-                                extract_metadata(amount, ts).reshape(1, -1)], axis=1)
-        proba = clf.predict_proba(X)[0]
-        pred  = le.classes_[int(np.argmax(proba))]
+        ts    = f"2024-06-15T{hour:02d}:30:00+05:30"
+        proba = categoriser.predict_proba(model, [raw], [amount], [ts])[0]
+        pred  = model.classes[int(np.argmax(proba))]
         conf  = proba.max()
         icon  = "✅" if pred == expected else "❌"
         if pred == expected: passed += 1
@@ -1138,7 +1275,24 @@ if __name__ == "__main__":
     p.add_argument("--samples",  type=int, default=40)
     p.add_argument("--seed",     type=int, default=42)
     p.add_argument("--no-smoke", action="store_true")
+    p.add_argument("--extra-data", help="CSV of extra labelled rows (raw_text,category,amount,timestamp)")
+    # Defaults are what ships (2026-09-27): logistic regression, no embeddings,
+    # the app's input text (ml/features.input_text).
+    p.add_argument("--embeddings", action="store_true",
+                   help="also train on MiniLM embeddings (needs sentence-transformers; the app refuses such a model)")
+    p.add_argument("--raw-input", action="store_true",
+                   help="train on the raw receiver text instead of the app's input text (experiments only)")
+    p.add_argument("--out-prefix", help="write <prefix>_model.pkl and <prefix>_encoder.pkl instead of "
+                                        "replacing ml/model_v2.pkl (experiments)")
+    p.add_argument("--classifier", choices=["sgd", "logreg"], default="logreg",
+                   help="which model to fit (4.9). The winner is decided by "
+                        "evaluate_model.py on real data, not by the validation "
+                        "score printed here.")
     args = p.parse_args()
-    train(samples_per_case=args.samples, seed=args.seed)
+    if args.out_prefix:
+        MODEL_PATH, ENCODER_PATH = f"{args.out_prefix}_model.pkl", f"{args.out_prefix}_encoder.pkl"
+    train(samples_per_case=args.samples, seed=args.seed, classifier=args.classifier,
+          extra_path=args.extra_data, pipeline_input=not args.raw_input,
+          use_embeddings=args.embeddings)
     if not args.no_smoke:
         smoke_test()

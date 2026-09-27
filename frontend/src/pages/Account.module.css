@@ -1,0 +1,10 @@
+.page { display: grid; gap: 8px; align-content: start; max-width: 760px; }
+.section { display: grid; gap: 12px; padding: 24px; margin-top: 12px; border-radius: var(--r-card); background: var(--paper-raised); border: 1px solid var(--rule); }
+.row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 24px; }
+.stack { display: grid; gap: 12px; }
+.attention { color: var(--ochre); font-weight: 600; }
+.confirm { display: grid; gap: 16px; max-width: 420px; }
+
+@media (max-width: 640px) {
+  .row :global(.btn) { width: 100%; }
+}

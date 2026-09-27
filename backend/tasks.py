@@ -1,31 +1,29 @@
 """
-tasks.py — All heavy ETL / ML work runs here as plain Python functions.
+tasks.py — Gmail sync and pipeline work, as plain Python functions.
 
 No Celery. No Redis. Functions are called directly via FastAPI BackgroundTasks
-or invoked inline from cron_runner.py.
+or invoked inline from cron_runner.py. Every Gmail sync is recorded in
+sync_jobs; the dashboard polls that row to know when the sync has finished.
 
 Function catalogue
 ──────────────────
-  run_pipeline_task(user_id)          — ETL + ML categorisation for one user
-  fetch_gmail_for_user_task(user_id)  — Gmail fetch → insert → run_pipeline
-  fetch_gmail_for_all_users_task()    — Loop: calls fetch_gmail_for_user for every connected user
-  trigger_online_refit_task()         — Pulls recent feedback and refits the ML model in-place
+  create_sync_job(user_id, kind, runner)            — queued sync_jobs row; returns its id
+  run_pipeline_task(user_id)                        — ETL + ML categorisation for one user
+  fetch_gmail_for_user_task(user_id, job_id, ...)   — Gmail fetch → insert → run_pipeline
+  fetch_gmail_for_all_users_task(runner)            — the above for every connected user
 """
 
-import os
-import re
-import base64
 import logging
-from datetime import datetime
+import time
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
-from supabase import create_client
-from dotenv import load_dotenv
 
+import config
+import token_crypto
 from etl import run_pipeline          # your existing ETL / ML entry-point
-
-load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+from gmail_parser import message_to_transaction
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging
@@ -37,48 +35,99 @@ log = logging.getLogger(__name__)
 # Supabase admin client (service-role key — workers run server-side only)
 # ─────────────────────────────────────────────────────────────────────────────
 
-supabase_admin = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
-)
+supabase_admin = config.admin_client()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Google OAuth config
+# Config
 # ─────────────────────────────────────────────────────────────────────────────
 
-GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-CRON_MAX_WORKERS     = int(os.getenv("CRON_MAX_WORKERS", "5"))
+GOOGLE_CLIENT_ID     = config.GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET = config.GOOGLE_CLIENT_SECRET
+CRON_MAX_WORKERS     = config.CRON_MAX_WORKERS
+
+GMAIL_API     = "https://gmail.googleapis.com/gmail/v1/users/me"
+BANK_QUERY    = ("from:(hdfc OR icici OR sbi OR axis OR kotak OR yesbank) "
+                 "(debited OR spent OR txn OR transaction)")
+PAGE_SIZE     = 100                  # message ids per list request (Gmail allows up to 500)
+MAX_PAGES     = 50                   # 5,000 messages per sync; hitting it is logged, never silent
+FETCH_WORKERS = 4                    # parallel message downloads per sync (8 hit the per-minute quota)
+FETCH_OVERLAP = timedelta(hours=1)   # re-read the last hour; message ids make repeats harmless
+IST           = timezone(timedelta(hours=5, minutes=30))   # India has no daylight saving
+RETRY_STATUS  = {429, 500, 502, 503, 504}
+MAX_ATTEMPTS  = 3                    # per Gmail request, for the statuses above and timeouts
+RATE_LIMIT_WAIT = 10                 # seconds; x attempt number on a 403/429 rate limit
+MAX_PENDING   = 500                  # message ids kept for the next sync to retry
+STALE_JOB_AGE = timedelta(minutes=30)  # a job still running after this died with its process
+INTERRUPTED_MESSAGE = "Interrupted by a server restart. Sync again."
+
+_sleep = time.sleep                  # tests replace it
+
+# Shown to the user in sync_jobs.error: no internal details.
+RECONNECT_MESSAGE     = "Gmail access has expired. Reconnect Gmail to keep syncing."
+NOT_CONNECTED_MESSAGE = "Gmail is not connected. Connect Gmail first."
+FAILED_MESSAGE        = "Gmail sync failed. Try again later."
+
+
+class GmailReconnectRequired(RuntimeError):
+    """Google no longer accepts the stored grant; only the user can restore it."""
+
+
+class GmailNotConnected(RuntimeError):
+    """The user has no stored Gmail tokens."""
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Shared helpers (kept private — not exported to FastAPI)
+# Sync jobs
 # ═════════════════════════════════════════════════════════════════════════════
 
-def _parse_date_safe(date_val):
+def create_sync_job(user_id: str, kind: str, runner: str = "api") -> str:
+    """Insert a queued sync_jobs row. kind: 'manual' | 'scheduled'; runner: 'api' | 'cron_runner'."""
+    res = supabase_admin.table("sync_jobs").insert({
+        "user_id": user_id,
+        "kind":    kind,
+        "runner":  runner,
+    }).execute()
+    return res.data[0]["id"]
+
+
+def _update_job(job_id: str, **fields) -> None:
+    supabase_admin.table("sync_jobs").update(fields).eq("id", job_id).execute()
+
+
+def fail_stale_jobs() -> None:
+    """
+    Fail jobs still queued or running after STALE_JOB_AGE. A host that sleeps
+    (Render free) kills in-flight background work without a restart the API
+    would notice, so the scheduled run cleans up instead. The dashboard then
+    stops waiting, and the unmoved cursor makes the next sync read it again.
+    """
+    cutoff = (datetime.now(timezone.utc) - STALE_JOB_AGE).isoformat()
     try:
-        import pandas as pd
-        return pd.to_datetime(date_val).to_pydatetime()
-    except Exception:
+        supabase_admin.table("sync_jobs").update({
+            "status":      "failed",
+            "error":       INTERRUPTED_MESSAGE,
+            "finished_at": _now_iso(),
+        }).in_("status", ["queued", "running"]).lt("created_at", cutoff).execute()
+    except Exception as e:
+        log.warning("[Task] Could not fail stale sync jobs: %s", e)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Google tokens
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _decrypt_refresh_token(user_id: str, encrypted: str | None) -> str | None:
+    """Stored refresh tokens are Fernet ciphertext (token_crypto)."""
+    if not encrypted:
         return None
-
-
-def _extract_body(payload: dict) -> str | None:
-    """Recursively extract the raw base64 body from a Gmail message payload."""
-    if "parts" in payload:
-        for part in payload["parts"]:
-            mime = part.get("mimeType", "")
-            if mime in ["text/plain", "text/html"]:
-                data = part["body"].get("data")
-                if data:
-                    return data
-            if "parts" in part:
-                result = _extract_body(part)
-                if result:
-                    return result
-    else:
-        return payload.get("body", {}).get("data")
-    return None
+    try:
+        return token_crypto.decrypt(encrypted)
+    except token_crypto.InvalidToken:
+        raise GmailReconnectRequired(f"refresh token for user {user_id} cannot be decrypted")
 
 
 def _refresh_google_token(user_id: str, refresh_token: str) -> str:
@@ -95,165 +144,164 @@ def _refresh_google_token(user_id: str, refresh_token: str) -> str:
     )
     data = res.json()
 
-    if "error" in data:
-        raise RuntimeError(
-            f"Google token refresh failed for user {user_id}: {data['error']}"
-        )
+    if data.get("error") == "invalid_grant":
+        raise GmailReconnectRequired(f"Google rejected the refresh token for user {user_id}")
+    if "error" in data or not data.get("access_token"):
+        raise RuntimeError(f"Google token refresh failed for user {user_id}: {data.get('error')}")
 
     new_access_token = data["access_token"]
 
-    supabase_admin.table("gmail_sync").upsert({
-        "user_id":      user_id,
+    supabase_admin.table("gmail_credentials").update({
         "access_token": new_access_token,
-        "updated_at":   datetime.utcnow().isoformat(),
-    }).execute()
+        "updated_at":   _now_iso(),
+    }).eq("user_id", user_id).execute()
 
     log.info("[Gmail] Token refreshed for user %s", user_id)
     return new_access_token
 
 
-def _validate_and_refresh_token(user_id: str, access_token: str, refresh_token: str | None) -> str:
-    """Proactively validate the access token; auto-refresh if expired."""
-    test = requests.get(
-        "https://gmail.googleapis.com/gmail/v1/users/me/profile",
-        headers={"Authorization": f"Bearer {access_token}"},
-        timeout=10,
-    )
-    if test.status_code != 401:
-        return access_token
+def _gmail_get(url: str, access_token: str, params: dict | None = None):
+    """
+    GET a Gmail API url, retrying rate limits (429), server errors and
+    timeouts up to MAX_ATTEMPTS times with backoff (Retry-After when Google
+    sends it). Returns the last response; raises only if every attempt timed out.
+    """
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            res = requests.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params, timeout=15)
+        except requests.RequestException:
+            if attempt == MAX_ATTEMPTS:
+                raise
+            _sleep(2 ** (attempt - 1))
+            continue
+        # Gmail also reports rate limits as 403 (rateLimitExceeded,
+        # userRateLimitExceeded); seen on a real 153-message read 2026-09-27.
+        rate_limited_403 = res.status_code == 403 and "ratelimitexceeded" in (getattr(res, "text", "") or "").lower()
+        if (res.status_code not in RETRY_STATUS and not rate_limited_403) or attempt == MAX_ATTEMPTS:
+            return res
+        # Rate limits are per minute per user, so a second's pause does not
+        # clear them; server errors usually do clear quickly.
+        retry_after = (getattr(res, "headers", None) or {}).get("Retry-After")
+        if str(retry_after or "").isdigit():
+            _sleep(min(int(retry_after), 30))
+        elif res.status_code in (403, 429):
+            _sleep(RATE_LIMIT_WAIT * attempt)
+        else:
+            _sleep(2 ** (attempt - 1))
+    return res
 
-    if not refresh_token:
-        raise RuntimeError(
-            f"Access token expired for user {user_id} and no refresh token available"
-        )
 
-    log.info("[Gmail] Access token expired for user %s — refreshing", user_id)
-    return _refresh_google_token(user_id, refresh_token)
+# ═════════════════════════════════════════════════════════════════════════════
+# Gmail fetch
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _gmail_query(last_fetched: str | None, now: datetime) -> str:
+    """
+    Bank-alert search since the last sync (minus FETCH_OVERLAP), or from the
+    start of the current month in India on the first sync (user decision
+    2026-09-27: a short first read stays inside Gmail's per-user rate limit).
+    Gmail's after: takes epoch seconds.
+    """
+    if last_fetched:
+        since = datetime.fromisoformat(last_fetched) - FETCH_OVERLAP
+    else:
+        since = now.astimezone(IST).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=timezone.utc)
+    return f"{BANK_QUERY} after:{int(since.timestamp())}"
 
 
-def _fetch_gmail_messages(
+def _list_message_ids(
     user_id: str,
     access_token: str,
     refresh_token: str | None,
-    last_fetched: str | None,
-) -> list[dict]:
-    """Paginate Gmail and return raw message stubs."""
-    if last_fetched:
-        query = (
-            "from:(hdfc OR icici OR sbi OR axis OR kotak OR yesbank) "
-            f"(debited OR spent OR txn OR transaction) after:{last_fetched[:10]}"
-        )
-        log.info("[Gmail] Incremental fetch from %s for user %s", last_fetched[:10], user_id)
-    else:
-        first_day = datetime.utcnow().replace(day=1).strftime("%Y/%m/%d")
-        query = (
-            "from:(hdfc OR icici OR sbi OR axis OR kotak OR yesbank) "
-            f"(debited OR spent OR txn OR transaction) after:{first_day}"
-        )
-        log.info("[Gmail] First-time fetch from %s for user %s", first_day, user_id)
+    query: str,
+) -> tuple[list[str], str]:
+    """Every matching message id, newest first, up to MAX_PAGES pages. Returns (ids, access_token)."""
+    ids: list[str] = []
+    page_token = None
 
-    headers         = {"Authorization": f"Bearer {access_token}"}
-    all_messages    = []
-    next_page_token = None
+    for _ in range(MAX_PAGES):
+        params = {"q": query, "maxResults": PAGE_SIZE}
+        if page_token:
+            params["pageToken"] = page_token
 
-    for _ in range(5):
-        url = (
-            "https://gmail.googleapis.com/gmail/v1/users/me/messages"
-            f"?q={query}&maxResults=10"
-        )
-        if next_page_token:
-            url += f"&pageToken={next_page_token}"
-
-        res = requests.get(url, headers=headers, timeout=15)
-
+        res = _gmail_get(f"{GMAIL_API}/messages", access_token, params)
         if res.status_code == 401:
             if not refresh_token:
-                raise RuntimeError(f"Gmail 401 for user {user_id} — no refresh token")
+                raise GmailReconnectRequired(f"Gmail returned 401 for user {user_id} and no refresh token is stored")
             access_token = _refresh_google_token(user_id, refresh_token)
-            headers      = {"Authorization": f"Bearer {access_token}"}
-            res          = requests.get(url, headers=headers, timeout=15)
+            res = _gmail_get(f"{GMAIL_API}/messages", access_token, params)
+        if res.status_code != 200:
+            raise RuntimeError(f"Gmail message list returned {res.status_code} for user {user_id}")
 
         data = res.json()
-        all_messages.extend(data.get("messages", []))
-        next_page_token = data.get("nextPageToken")
-        if not next_page_token:
+        ids.extend(m["id"] for m in data.get("messages", []))
+        page_token = data.get("nextPageToken")
+        if not page_token:
             break
-
-    log.info("[Gmail] Found %d messages for user %s", len(all_messages), user_id)
-    return all_messages
-
-
-def _parse_gmail_messages(
-    user_id: str,
-    messages: list[dict],
-    access_token: str,
-) -> list[dict]:
-    """Fetch full email bodies and extract transaction data."""
-    headers      = {"Authorization": f"Bearer {access_token}"}
-    transactions = []
-
-    for msg in messages:
-        try:
-            msg_id  = msg["id"]
-            msg_res = requests.get(
-                f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}",
-                headers=headers,
-                timeout=15,
-            )
-            msg_data = msg_res.json()
-            payload  = msg_data.get("payload", {})
-            raw_body = _extract_body(payload)
-
-            if not raw_body:
-                continue
-
-            body = base64.urlsafe_b64decode(raw_body).decode("utf-8", errors="ignore")
-
-            if not re.search(r"(?i)debited|spent|paid", body):
-                continue
-
-            match = re.search(
-                r"(?i)(?:rs\.?|inr|₹)\s?([\d,]+\.?\d{0,2}).*?(?:debited|spent|paid)",
-                body,
-            )
-            if not match:
-                match = re.search(
-                    r"(?i)(?:debited|spent|paid).*?(?:rs\.?|inr|₹)\s?([\d,]+\.?\d{0,2})",
-                    body,
-                )
-            if not match:
-                continue
-
-            amount = float(match.group(1).replace(",", ""))
-            if amount <= 0:
-                continue
-
-            receiver_match = re.search(r"(?i)to\s+(.*?)\s+on", body)
-            receiver       = receiver_match.group(1).strip() if receiver_match else "UNKNOWN"
-
-            email_date = None
-            for header in payload.get("headers", []):
-                if header.get("name") == "Date":
-                    email_date = _parse_date_safe(header["value"])
-                    break
-
-            transactions.append({
-                "user_id":          user_id,
-                "amount":           amount,
-                "receiver":         receiver[:100],
-                "transaction_type": "debit",
-                "timestamp":        (email_date or datetime.utcnow()).isoformat(),
-                "source":           "gmail",
-                "raw_text":         body[:200],
-            })
-
-        except Exception as e:
+    else:
+        if page_token:
             log.warning(
-                "[Gmail] Email parse error (msg %s, user %s): %s",
-                msg.get("id", "?"), user_id, e,
+                "[Gmail] Stopped after %d pages (%d messages) for user %s; older messages in this window were not fetched",
+                MAX_PAGES, len(ids), user_id,
             )
 
-    return transactions
+    log.info("[Gmail] Found %d messages for user %s", len(ids), user_id)
+    return ids, access_token
+
+
+class MessageDownloadFailed(RuntimeError):
+    """A message could not be downloaded after retries; the next sync retries it."""
+
+
+def _google_reason(res) -> str:
+    """Google's machine-readable error reason (e.g. userRateLimitExceeded).
+    A fixed code from Google, never mail content, so it is safe to log."""
+    try:
+        err = (res.json() or {}).get("error") or {}
+        errors = err.get("errors") or [{}]
+        return str(errors[0].get("reason") or err.get("status") or "unknown")[:60]
+    except (ValueError, AttributeError, TypeError):
+        return "unknown"
+
+
+def _download_message(msg_id: str, access_token: str) -> dict | None:
+    """The message, or None if Gmail no longer has it (404). Raises on any other failure."""
+    res = _gmail_get(f"{GMAIL_API}/messages/{msg_id}", access_token, {"format": "full"})
+    if res.status_code == 404:
+        log.warning("[Gmail] Message %s no longer exists", msg_id)
+        return None
+    if res.status_code != 200:
+        raise MessageDownloadFailed(f"message {msg_id} returned {res.status_code} ({_google_reason(res)})")
+    return res.json()
+
+
+def _download_transactions(user_id: str, message_ids: list[str], access_token: str) -> tuple[list[dict], list[str]]:
+    """
+    Download messages in parallel and keep the ones that parse as debit
+    alerts. Returns (rows, failed_ids): the ids that could not be downloaded
+    or read, which the caller keeps for the next sync to retry (DATA-07).
+    """
+    fetched_at = datetime.now(timezone.utc)
+
+    def work(msg_id: str) -> dict | None:
+        message = _download_message(msg_id, access_token)
+        return message_to_transaction(user_id, message, fetched_at) if message else None
+
+    transactions, failed = [], []
+    with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
+        futures = {pool.submit(work, msg_id): msg_id for msg_id in message_ids}
+        for future in as_completed(futures):
+            try:
+                row = future.result()
+            except Exception as e:
+                failed.append(futures[future])
+                log.warning("[Gmail] Message %s for user %s not read: %s", futures[future], user_id, e)
+                continue
+            if row:
+                transactions.append(row)
+    return transactions, failed
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -276,85 +324,127 @@ def run_pipeline_task(user_id: str) -> dict:
         raise
 
 
-def fetch_gmail_for_user_task(user_id: str) -> dict:
+def fetch_gmail_for_user_task(user_id: str, job_id: str | None = None, runner: str = "api") -> dict:
     """
-    Gmail fetch + insert + pipeline for a single user.
+    Gmail fetch + insert + pipeline for one user, recorded in sync_jobs.
 
     Steps
     ─────
-    1. Load Gmail OAuth tokens from DB
-    2. Validate / refresh access token
-    3. Fetch message list (paginated, up to 50 messages)
-    4. Parse emails → transaction dicts
-    5. Insert into `transactions` table
-    6. Update `last_fetched` timestamp
-    7. Run the ETL pipeline inline
+    1. Load the tokens (gmail_credentials) and the fetch cursor (gmail_sync)
+    2. Validate the access token, refreshing it if needed
+    3. List every matching message id since the cursor (minus FETCH_OVERLAP)
+    4. Download and parse the messages in parallel
+    5. Insert raw rows; a message already stored is skipped (user_id, message_id)
+    6. Move the cursor to the moment this sync started, always, and keep the
+       ids of messages that could not be read in gmail_sync.pending_message_ids;
+       the next sync retries them along with the new mail (DATA-07). Holding
+       the cursor back instead made every sync re-read the whole first window, and that burst
+       is what tripped Gmail's rate limit (2026-09-27).
+    7. Run the ETL pipeline
+
+    A job created elsewhere (the /fetch-gmail route) is passed in; otherwise a
+    'scheduled' job is created here.
     """
-    log.info("[Task] fetch_gmail_for_user_task started for user %s", user_id)
+    job_id  = job_id or create_sync_job(user_id, "scheduled", runner)
+    started = datetime.now(timezone.utc)
+    _update_job(job_id, status="running", started_at=started.isoformat())
+    log.info("[Task] fetch_gmail_for_user_task started for user %s (job %s)", user_id, job_id)
 
     try:
-        # 1. Load tokens
-        token_res = (
-            supabase_admin.table("gmail_sync")
-            .select("*")
+        # 1. Tokens and cursor
+        cred_res = (
+            supabase_admin.table("gmail_credentials")
+            .select("access_token, refresh_token_encrypted")
             .eq("user_id", user_id)
             .execute()
         )
-        if not token_res.data:
-            raise RuntimeError("No Gmail tokens found — user has not connected Gmail")
+        if not cred_res.data:
+            raise GmailNotConnected(f"no Gmail tokens for user {user_id}")
 
-        row           = token_res.data[0]
-        access_token  = row["access_token"]
-        refresh_token = row.get("refresh_token")
-        last_fetched  = row.get("last_fetched")
+        cred          = cred_res.data[0]
+        access_token  = cred["access_token"]
+        refresh_token = _decrypt_refresh_token(user_id, cred.get("refresh_token_encrypted"))
 
-        # 2. Validate / refresh
-        access_token = _validate_and_refresh_token(user_id, access_token, refresh_token)
+        # "*": a database without the pending_message_ids migration still syncs.
+        sync_res     = supabase_admin.table("gmail_sync").select("*").eq("user_id", user_id).execute()
+        sync_row     = sync_res.data[0] if sync_res.data else {}
+        last_fetched = sync_row.get("last_fetched")
+        has_pending  = "pending_message_ids" in sync_row
+        pending      = list(sync_row.get("pending_message_ids") or [])
 
-        # 3. Fetch message list
-        messages = _fetch_gmail_messages(user_id, access_token, refresh_token, last_fetched)
+        # 2. No separate token check: the list call below refreshes on a 401.
 
-        # 4. Parse
-        transactions = _parse_gmail_messages(user_id, messages, access_token) if messages else []
+        # 3. List
+        query = _gmail_query(last_fetched, started)
+        message_ids, access_token = _list_message_ids(user_id, access_token, refresh_token, query)
+        message_ids = list(dict.fromkeys(message_ids + pending))   # new mail, then last sync's failures
 
-        # 5. Insert
+        # 4. Download and parse
+        transactions, failed = (_download_transactions(user_id, message_ids, access_token)
+                                if message_ids else ([], []))
+
+        # 5. Insert; the database drops messages it already has
+        inserted = 0
         if transactions:
-            supabase_admin.table("transactions").insert(transactions).execute()
-            log.info("[Task] Inserted %d transactions for user %s", len(transactions), user_id)
+            res = (
+                supabase_admin.table("transactions")
+                .upsert(transactions, on_conflict="user_id,message_id", ignore_duplicates=True)
+                .execute()
+            )
+            inserted = len(res.data or [])
+            log.info("[Task] %d of %d parsed alerts were new for user %s", inserted, len(transactions), user_id)
 
-        # 6. Update last_fetched
-        supabase_admin.table("gmail_sync").update({
-            "last_fetched": datetime.utcnow().isoformat(),
-        }).eq("user_id", user_id).execute()
+        # 6. Cursor: the start of this sync, so mail arriving meanwhile is read
+        #    next time. Messages not read are kept and retried (DATA-07).
+        update = {"last_fetched": started.isoformat()}
+        if has_pending:
+            update["pending_message_ids"] = failed[:MAX_PENDING]
+        supabase_admin.table("gmail_sync").update(update).eq("user_id", user_id).execute()
+        if failed and has_pending:
+            log.warning("[Task] %d message(s) not read for user %s; kept for the next sync", len(failed), user_id)
+        elif failed:
+            log.warning("[Task] %d message(s) not read for user %s and cannot be kept: apply the "
+                        "pending_message_ids migration", len(failed), user_id)
 
-        # 7. Run ETL pipeline inline
+        # 7. Pipeline
         run_pipeline_task(user_id)
-        log.info("[Task] Pipeline completed for user %s", user_id)
 
-        return {
-            "status":             "ok",
-            "user_id":            user_id,
-            "transactions_found": len(transactions),
-        }
+        _update_job(job_id, status="succeeded", transactions_found=inserted, finished_at=_now_iso())
+        log.info("[Task] Sync finished for user %s", user_id)
+        return {"status": "ok", "user_id": user_id, "job_id": job_id, "transactions_found": inserted}
 
-    except RuntimeError as e:
+    except GmailReconnectRequired as e:
+        log.warning("[Task] Gmail reconnect required for user %s: %s", user_id, e)
+        supabase_admin.table("gmail_sync").update({"needs_reconnect": True}).eq("user_id", user_id).execute()
+        _update_job(job_id, status="failed", error=RECONNECT_MESSAGE, finished_at=_now_iso())
+        return {"status": "skipped", "user_id": user_id, "job_id": job_id, "error": RECONNECT_MESSAGE}
+
+    except GmailNotConnected as e:
         log.warning("[Task] Skipped user %s: %s", user_id, e)
-        return {"status": "skipped", "user_id": user_id, "error": str(e)}
+        _update_job(job_id, status="failed", error=NOT_CONNECTED_MESSAGE, finished_at=_now_iso())
+        return {"status": "skipped", "user_id": user_id, "job_id": job_id, "error": NOT_CONNECTED_MESSAGE}
 
     except Exception as exc:
         log.exception("[Task] fetch_gmail_for_user_task failed for user %s: %s", user_id, exc)
+        _update_job(job_id, status="failed", error=FAILED_MESSAGE, finished_at=_now_iso())
         raise
 
 
-def fetch_gmail_for_all_users_task() -> dict:
+def fetch_gmail_for_all_users_task(runner: str = "api") -> dict:
     """
-    Loop through all users with Gmail connected and process each one.
+    Sync every user whose Gmail connection works (needs_reconnect is false).
     Uses a thread pool to process multiple users concurrently.
     """
     log.info("[Task] fetch_gmail_for_all_users_task — loading user list")
+    fail_stale_jobs()
 
-    users_res = supabase_admin.table("gmail_sync").select("user_id").execute()
-    user_ids  = [row["user_id"] for row in users_res.data]
+    users_res = (
+        supabase_admin.table("gmail_sync")
+        .select("user_id")
+        .eq("needs_reconnect", False)
+        .execute()
+    )
+    user_ids = [row["user_id"] for row in users_res.data]
 
     if not user_ids:
         log.info("[Task] No users with Gmail connected — nothing to process")
@@ -362,7 +452,7 @@ def fetch_gmail_for_all_users_task() -> dict:
 
     results = []
     with ThreadPoolExecutor(max_workers=CRON_MAX_WORKERS) as executor:
-        futures = {executor.submit(fetch_gmail_for_user_task, uid): uid for uid in user_ids}
+        futures = {executor.submit(fetch_gmail_for_user_task, uid, None, runner): uid for uid in user_ids}
         for future in as_completed(futures):
             uid = futures[future]
             try:
@@ -374,27 +464,14 @@ def fetch_gmail_for_all_users_task() -> dict:
                 results.append({"status": "error", "user_id": uid, "error": str(e)})
 
     log.info("[Task] Processed %d users", len(user_ids))
+    _log_quality_report()
     return {"users_processed": len(user_ids), "results": results}
 
 
-def trigger_online_refit_task() -> dict:
-    """Pull recent feedback and refit the ML model in-place."""
-    log.info("[Task] Extracting DB feedback for online refit")
-
-    res = supabase_admin.table("category_feedback").select("*").order("corrected_at", desc=True).limit(50).execute()
-    if not res.data:
-        return {"status": "no data"}
-
-    samples = []
-    from ml.categoriser import _online_refit, extract_metadata
-    for row in res.data:
-        meta = extract_metadata(float(row.get("amount") or 0.0), row.get("corrected_at"))
-        samples.append({
-            "raw_text": row.get("raw_text") or row.get("merchant", ""),
-            "category": row.get("corrected_category"),
-            "metadata": meta
-        })
-
-    _online_refit(bulk_samples=samples)
-    log.info("[Task] Refit complete")
-    return {"status": "ok", "refit_samples": len(samples)}
+def _log_quality_report() -> None:
+    """Last 7 days' quality numbers (uncategorised share, repeat corrections) into the log."""
+    try:
+        report = supabase_admin.rpc("quality_report", {}).execute().data
+        log.info("[Quality] %s", report)
+    except Exception as e:
+        log.warning("[Quality] report failed: %s", type(e).__name__)

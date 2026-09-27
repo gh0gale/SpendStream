@@ -1,0 +1,6 @@
+{
+  "bank": "HDFC",
+  "note": "Account credit alert (HTML), September 2026, same sender as debits. Must not be read as a debit. Identifiers and names replaced.",
+  "body": "<!doctype html>\r\n<html>\r\n\r\n<head>\r\n    <meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">\r\n    <style>td { font-family: Arial; } .x { color: #333; }</style>\r\n</head>\r\n<body><table><tr><td>We&#39;re writing to inform you that Rs.1500.00 has been successfully credited to your HDFC Bank account ending in 1234</td></tr><tr><td>Transaction Details:</td></tr><tr><td>a. Date: 20-09-26</td></tr><tr><td>b. Sender: RAHUL SHARMA</td></tr></table></body></html>",
+  "expected": null
+}

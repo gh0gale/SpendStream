@@ -1,0 +1,21 @@
+# Backend dev container. Frontend runs on the host with `npm run dev`.
+#   docker compose up --build         start the API on http://localhost:8000
+#   docker compose run --rm backend python test_pipeline.py
+
+services:
+  backend:
+    build: ./backend
+    image: spendstream-backend
+    ports:
+      - "8000:8000"
+    env_file: ./backend/.env
+    environment:
+      # Bind-mounted files on Windows do not emit change events inside Linux
+      # containers; polling makes --reload notice edits.
+      WATCHFILES_FORCE_POLLING: "true"
+    volumes:
+      # Live code: edits reload, and train_model.py writes ml/*.pkl back to the repo.
+      - ./backend:/app
+      # Hide the host's Windows .venv from the container and from the reloader.
+      - /app/.venv
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload

@@ -1,0 +1,9 @@
+{
+  "bank": "HDFC",
+  "note": "UPI debit alert (HTML), September 2026. Wording and HTML shape copied from a real alert; identifiers, amounts and names replaced; layout simplified to a table.",
+  "body": "<!doctype html>\r\n<html>\r\n\r\n<head>\r\n    <meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">\r\n    <style>td { font-family: Arial; } .x { color: #333; }</style>\r\n</head>\r\n<body><table><tr><td>Dear Customer,</td></tr><tr><td>Greetings from HDFC Bank!</td></tr><tr><td>Rs.5000.00 is debited from your account ending 1234 towards VPA groww.iccl1.brk@validhdfc (MUTUAL FUNDS ICCL) on 21-09-26.</td></tr><tr><td>Your UPI transaction reference no.: 111122223333.</td></tr><tr><td>If you did not authorize this transaction, please report it immediately at: a. When in India (Toll free): 18002586161</td></tr></table></body></html>",
+  "expected": {
+    "amount": 5000.0,
+    "receiver": "VPA groww.iccl1.brk@validhdfc MUTUAL FUNDS ICCL"
+  }
+}

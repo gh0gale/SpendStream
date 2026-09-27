@@ -1,0 +1,19 @@
+# Secrets are passed at run time (compose env_file), never baked into the image.
+.env
+.env.*
+!.env.example
+
+# Host virtualenv (Windows binaries, useless in Linux) and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Private data and models never go into an image: the API downloads the
+# live model from Supabase Storage at startup (model_store.py).
+ml/data/
+ml/*.pkl
+
+Dockerfile
+.dockerignore

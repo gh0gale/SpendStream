@@ -1,0 +1,42 @@
+/* Reading pages: How it works, Your data, Privacy, Terms. One measured column,
+   with the step ledger or a contents list in the left gutter on desktop. */
+
+.article { padding-top: 56px; }
+.head { display: grid; gap: 16px; max-width: var(--measure); margin-bottom: 40px; margin-left: 96px; }
+.updated { color: var(--ink-2); font-size: var(--t-small); }
+
+.step {
+  display: grid; grid-template-columns: 96px minmax(0, var(--measure));
+  padding: 32px 0; border-top: 1px solid var(--rule);
+}
+.stepNumber {
+  font-variant-numeric: tabular-nums; color: var(--pencil); font-weight: 600;
+  font-size: var(--t-h3); line-height: 1.6;
+}
+.stepBody { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-content: start; min-width: 0; }
+
+.ordered { padding-left: 1.4em; display: grid; gap: 10px; }
+.categories { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; }
+.categories > div { display: grid; gap: 4px; align-content: start; }
+
+.query {
+  background: var(--paper-sunk); border: 1px solid var(--rule-on-sunk); padding: 14px 16px;
+  font-family: var(--font-mono); font-size: var(--t-small); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.copyRow { display: flex; align-items: center; gap: 12px; }
+
+.blockquote { background: var(--paper-sunk); border: 1px solid var(--rule-on-sunk); padding: 16px; }
+
+.legal { font-size: 17px; line-height: 1.6; }
+.legal ul, .legal ol { padding-left: 1.4em; display: grid; gap: 8px; }
+
+@media (max-width: 800px) {
+  .article { padding-top: 32px; }
+  .head { margin-left: 0; }
+  .step { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .stepNumber { font-size: var(--t-body); }
+  .categories { grid-template-columns: 1fr; }
+}
+
+.stepBody code { overflow-wrap: anywhere; }
+.stepBody :global(.ledger) { table-layout: fixed; }

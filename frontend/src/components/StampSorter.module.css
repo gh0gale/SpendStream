@@ -1,0 +1,86 @@
+/* One 9 s loop, shared by every moving part; each part's keyframes say when
+   it acts: the slip arrives, is marked, dims once filed, the row appears and
+   the stamp lands. .still shows every part at its end state (reduced motion). */
+.page {
+  --loop: 9s;
+  position: relative; display: grid; gap: 14px; margin: 0;
+  padding: 22px 22px 18px; border-radius: var(--r-card);
+  background:
+    repeating-linear-gradient(to bottom, transparent 0 43px, var(--rule) 43px 44px),
+    var(--paper-raised);
+  border: 1px solid var(--rule); transform: rotate(1.2deg);
+}
+.head { display: flex; justify-content: space-between; padding-bottom: 8px; border-bottom: 2px solid var(--ink); }
+
+.slip {
+  position: relative; z-index: 2; margin-left: -34px; margin-right: 18px; padding: 16px 18px;
+  background: var(--paper); border: 1px solid var(--rule-strong); border-radius: 10px;
+  transform: rotate(-2.4deg);
+}
+.slipFrom { font-size: var(--t-caption); color: var(--ink-2); font-weight: 600; margin-bottom: 6px; }
+.slipText { display: block; font-size: 13px; line-height: 1.7; color: var(--ink-2); overflow-wrap: anywhere; }
+.hl {
+  color: var(--on-marigold); padding: 1px 2px; border-radius: 3px;
+  background: linear-gradient(var(--marigold), var(--marigold)) no-repeat left / 100% 100%;
+}
+
+.rows { display: grid; }
+.row {
+  display: grid; grid-template-columns: 58px auto minmax(0, 1fr) auto; align-items: center; gap: 12px;
+  min-height: 44px; position: relative; font-size: var(--t-small);
+}
+.merchant { font-weight: 700; font-family: var(--font-display); font-size: 17px; }
+
+.stamp {
+  justify-self: start;
+  padding: 4px 8px; border: 2px solid var(--stamp); border-radius: var(--r-stamp); color: var(--stamp);
+  font: 800 12px / 1 var(--font-sans); letter-spacing: 0.14em; text-transform: uppercase;
+  transform: rotate(-9deg); background: color-mix(in srgb, var(--paper-raised) 70%, transparent);
+}
+.stampStill { transform: rotate(5deg); color: var(--accent); border-color: var(--accent); }
+
+.caption { font-size: var(--t-caption); color: var(--ink-2); margin-top: 4px; }
+
+/* ── The loop ─────────────────────────────────────────────────────────── */
+.play .slip, .play .hl, .play .newRow, .play .stampNew,
+.paused .slip, .paused .hl, .paused .newRow, .paused .stampNew {
+  animation-duration: var(--loop); animation-iteration-count: infinite; animation-timing-function: var(--ease-settle);
+}
+.paused .slip, .paused .hl, .paused .newRow, .paused .stampNew { animation-play-state: paused; }
+
+.play .slip, .paused .slip { animation-name: slip; }
+@keyframes slip {
+  0%   { opacity: 0; transform: translate(60px, -10px) rotate(6deg); }
+  8%   { opacity: 1; transform: rotate(-2.4deg); }
+  46%  { opacity: 1; transform: rotate(-2.4deg); }
+  56%, 92% { opacity: 0.35; transform: translateY(6px) rotate(-1deg) scale(0.97); }
+  100% { opacity: 0; transform: translateY(6px) rotate(-1deg) scale(0.97); }
+}
+
+.play .hl, .paused .hl { animation-name: highlight; }
+.play .payee, .paused .payee { animation-delay: 0.45s; }
+.play .date, .paused .date { animation-delay: 0.9s; }
+@keyframes highlight {
+  0%, 12% { background-size: 0% 100%; color: var(--ink-2); }
+  20%, 100% { background-size: 100% 100%; color: var(--on-marigold); }
+}
+
+.play .newRow, .paused .newRow { animation-name: row; }
+@keyframes row {
+  0%, 50% { opacity: 0; transform: translateY(-14px); }
+  58%, 94% { opacity: 1; transform: none; }
+  100% { opacity: 0; }
+}
+
+.play .stampNew, .paused .stampNew { animation-name: stamp; animation-timing-function: cubic-bezier(0.3, 0, 0.2, 1.4); }
+@keyframes stamp {
+  0%, 60% { opacity: 0; transform: scale(2.2) rotate(-18deg); }
+  66%     { opacity: 1; transform: scale(0.94) rotate(-9deg); }
+  70%, 94% { opacity: 1; transform: scale(1) rotate(-9deg); }
+  100%    { opacity: 0; transform: scale(1) rotate(-9deg); }
+}
+
+@media (max-width: 640px) {
+  .page { transform: none; padding: 18px 14px 14px; }
+  .slip { margin-left: -6px; margin-right: 0; }
+}

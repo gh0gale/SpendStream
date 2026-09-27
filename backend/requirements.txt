@@ -1,7 +1,6 @@
 # ── Web framework ──────────────────────────────────────────────
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
-python-multipart>=0.0.9
 
 # ── Supabase & HTTP ────────────────────────────────────────────
 supabase>=2.4.0
@@ -10,6 +9,7 @@ httpx>=0.27.0
 # ── Auth & config ──────────────────────────────────────────────
 python-dotenv>=1.0.0
 pydantic>=2.7.0
+cryptography>=42.0.0          # Fernet encryption of stored Gmail refresh tokens (token_crypto.py)
 
 # ── ML core ────────────────────────────────────────────────────
 # IMPORTANT: pinned to 1.7.2 — model_v2.pkl was pickled with this version.
@@ -20,18 +20,10 @@ numpy>=1.26.0
 scipy>=1.13.0
 pandas>=2.2.0
 joblib>=1.4.0
-openpyxl>=3.1.0
 
-# ── Transformer embeddings ─────────────────────────────────────
-sentence-transformers>=3.0.0
+# No sentence-transformers / torch since 2026-09-27: the model is trained
+# with --no-embeddings (same accuracy on the golden set, 606 -> 218 MB peak).
+# Install sentence-transformers by hand only to train an embeddings model.
 
-# ── Gmail fetch ───────────────────────────────────────────────
-google-auth>=2.29.0
-google-auth-oauthlib>=1.2.0
-google-api-python-client>=2.128.0
-
-# ── Async task queue (Removed) ──────────────────────────────────────────
-
-# ── CRON Jobs ─────────────────────────────────────────────────
-apscheduler
-pytz
+# ── Gmail fetch and Google OAuth (plain HTTPS, no Google client library) ──
+requests>=2.31.0

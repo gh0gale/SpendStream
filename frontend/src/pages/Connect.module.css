@@ -1,0 +1,10 @@
+.wrap { min-height: 100vh; display: grid; justify-items: center; align-content: start; gap: 32px; padding: 40px var(--gutter); }
+.wordmark { font-family: var(--font-display); font-weight: 700; font-size: 28px; letter-spacing: -0.02em; color: var(--ink); text-decoration: none; }
+.column { width: 100%; max-width: 600px; display: grid; gap: 20px; }
+.steps { padding-left: 1.4em; display: grid; gap: 8px; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
+.actions a { display: inline-flex; align-items: center; min-height: var(--target); }
+
+@media (max-width: 480px) {
+  .actions :global(.btn-primary) { width: 100%; }
+}

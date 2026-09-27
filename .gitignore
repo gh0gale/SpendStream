@@ -45,9 +45,42 @@ frontend/dist/
 
 
 # =========================
+# Private model data — never commit
+# =========================
+# Real, hand-labelled transactions used to measure accuracy, and any other
+# real user data. These contain people's names, amounts and UPI handles, so
+# they live in a private Supabase Storage bucket, never in git.
+backend/ml/data/golden_set.csv
+backend/ml/data/real_labels.csv
+backend/ml/data/private_*.csv
+# The labelled dataset (real statement seed + augmentations), added 2026-09-27.
+backend/ml/data/spendstream_dataset/
+# Everything else in ml/data is real or derived user data too (all_data.csv, 2026-09-27).
+backend/ml/data/
+# Model artifacts downloaded or produced by the weekly retrain (4.10, 4.11).
+backend/ml/active_model.pkl
+backend/ml/active_encoder.pkl
+backend/ml/candidate_*.pkl
+# The live model is trained on real transactions (its vocabulary holds real
+# payee names). It lives in the private Supabase bucket: see backend/model_store.py.
+backend/ml/*.pkl
+
+# =========================
 # Jupyter / Experiments
 # =========================
 .ipynb_checkpoints/
 
 
 .agents/
+
+# =========================
+# Local only — never push
+# =========================
+# Claude Code context: rules, memory, skills, agent guide.
+.claude/
+CLAUDE.md
+# Project planning and design docs (audit, roadmap, blueprint, user to-do, design spec).
+docs/
+
+# Launch video and its assets (not app code).
+brag-output/

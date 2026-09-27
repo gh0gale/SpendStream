@@ -1,0 +1,141 @@
+/* Home: an asymmetric hero (text left, the passbook page right), a strip of
+   facts, zig-zag steps, a navy month band, a receipt, a read / never-read
+   table, an accordion, and a closing line. Everything left-aligned. */
+
+.hero {
+  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); gap: 64px; align-items: center;
+  padding-top: 72px; padding-bottom: 72px;
+}
+.heroText { display: grid; gap: 22px; }
+.tag { display: flex; flex-wrap: wrap; gap: 8px; }
+.tag span {
+  padding: 5px 10px; border: 1px solid var(--rule-strong); border-radius: var(--r-pill);
+  font-size: var(--t-caption); font-weight: 600; letter-spacing: 0.04em; color: var(--ink-2);
+}
+.title { font-size: clamp(46px, 6.6vw, 88px); max-width: 12ch; }
+.ctas { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
+.ctas a:not(:global(.btn)) { display: inline-flex; align-items: center; min-height: var(--target); }
+.ctas :global(.btn) { min-height: 52px; padding: 0 24px; }
+.heroArt { min-width: 0; }
+
+.facts { background: var(--paper-sunk); border-block: 1px solid var(--rule); }
+.facts ul { list-style: none; display: grid; grid-template-columns: repeat(4, 1fr); }
+.facts li { display: grid; gap: 4px; padding: 24px 20px; border-left: 1px solid var(--rule-on-sunk); max-width: none; }
+.facts li:first-child { border-left: 0; padding-left: 0; }
+.facts strong { font-family: var(--font-display); font-size: 20px; font-weight: 650; }
+.facts span { font-size: var(--t-small); color: var(--ink-2); }
+
+.section { padding-top: 104px; display: grid; gap: 40px; }
+.sectionHead { display: grid; gap: 14px; align-content: start; max-width: 640px; }
+.sectionHead h2 { font-size: clamp(36px, 4.6vw, 58px); }
+.sectionHead a { justify-self: start; display: inline-flex; align-items: center; min-height: var(--target); }
+.split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 64px; }
+
+.steps { list-style: none; display: grid; gap: 24px; }
+.step {
+  display: grid; grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: center;
+  padding: 32px 0; border-top: 1px solid var(--rule); max-width: none;
+}
+.step:nth-child(even) .stepArt { grid-column: 2; grid-row: 1; }
+.step:nth-child(even) .stepText { grid-column: 3; grid-row: 1; }
+.stepNumber {
+  font-family: var(--font-display); font-weight: 700; font-size: 96px; line-height: 0.8;
+  color: transparent; -webkit-text-stroke: 1.5px var(--ink); align-self: start;
+}
+.stepText { display: grid; gap: 10px; max-width: 440px; }
+.stepText h3 { font-family: var(--font-display); font-weight: 650; font-size: 30px; line-height: 1.1; letter-spacing: -0.02em; }
+.stepArt {
+  min-width: 0; padding: 22px; border-radius: var(--r-card);
+  background: var(--paper-raised); border: 1px solid var(--rule);
+}
+.alertArt { display: block; font-size: var(--t-small); line-height: 1.7; color: var(--ink-2); overflow-wrap: anywhere; }
+.pairs { list-style: none; display: grid; gap: 14px; }
+.pairs li { display: grid; gap: 2px; }
+.pairs code { font-size: 13px; color: var(--pencil); overflow-wrap: anywhere; }
+.pairs strong { font-family: var(--font-display); font-weight: 650; font-size: 26px; }
+.filed { list-style: none; display: grid; gap: 12px; }
+.filed li { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.correction { display: grid; gap: 10px; min-width: 0; }
+.correction :global(.ledger) th, .correction :global(.ledger) td { padding: 8px 4px; font-size: var(--t-small); }
+
+.band {
+  margin-top: 104px; padding: 80px 0; background: var(--navy); color: var(--on-band);
+  --paper: var(--navy); --paper-raised: var(--navy-deep); --paper-sunk: var(--navy-deep);
+  --ink: var(--on-band); --ink-2: var(--on-band-2); --pencil: var(--on-band-2);
+  --rule: rgba(243, 239, 228, 0.16); --rule-strong: rgba(243, 239, 228, 0.45);
+  --bar: var(--marigold); --accent: var(--marigold);
+}
+.bandInner { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 64px; align-items: center; }
+.bandText { display: grid; gap: 14px; }
+.bandText h2 { font-size: clamp(36px, 4.6vw, 58px); }
+.monthTotal { font-size: clamp(56px, 7.4vw, 104px); color: var(--marigold); }
+.bandNote { color: var(--on-band-2); }
+
+.grow :global(.bar) { transform-origin: left; transform: scaleX(0); transition: transform 900ms var(--ease-settle); }
+.grow tr:nth-child(2) :global(.bar) { transition-delay: 60ms; }
+.grow tr:nth-child(3) :global(.bar) { transition-delay: 120ms; }
+.grow tr:nth-child(4) :global(.bar) { transition-delay: 180ms; }
+.grow tr:nth-child(n+5) :global(.bar) { transition-delay: 240ms; }
+.shownBars :global(.bar) { transform: scaleX(1); }
+
+/* A printed receipt: saw-tooth top and bottom edges cut with a mask. */
+.receipt {
+  --tooth: 10px;
+  justify-self: center; width: min(380px, 100%); margin: 0; padding: 30px 26px;
+  background: var(--paper-raised); color: var(--ink); font-family: var(--font-mono); font-size: var(--t-small);
+  transform: rotate(-1.5deg);
+  -webkit-mask:
+    conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / calc(2 * var(--tooth)) 51% repeat-x,
+    conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) top / calc(2 * var(--tooth)) 51% repeat-x;
+          mask:
+    conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / calc(2 * var(--tooth)) 51% repeat-x,
+    conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) top / calc(2 * var(--tooth)) 51% repeat-x;
+  border-inline: 1px solid var(--rule);
+}
+.receiptHead, .receiptFoot { text-align: center; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600; font-size: var(--t-caption); max-width: none; }
+.receiptHead { padding-bottom: 14px; border-bottom: 1px dashed var(--rule-strong); }
+.receiptFoot { padding-top: 14px; border-top: 1px dashed var(--rule-strong); }
+.receipt dl { display: grid; gap: 10px; padding: 16px 0; }
+.receipt dl div { display: flex; align-items: baseline; gap: 8px; }
+.receipt dt { color: var(--ink-2); }
+.receipt dl div::before { content: ''; order: 1; flex: 1; border-bottom: 1px dotted var(--rule-strong); }
+.receipt dd { order: 2; font-weight: 600; }
+
+.readTable { background: var(--paper-raised); border: 1px solid var(--rule); border-radius: var(--r-card); border-collapse: separate; border-spacing: 0; overflow: hidden; }
+.readTable th, .readTable td { padding: 16px 18px; width: 50%; }
+.readTable td:first-child, .readTable th:first-child { border-right: 1px solid var(--rule); }
+.readTable td:last-child { color: var(--ink-2); }
+.readTable tr:last-child td { border-bottom: 0; }
+
+.faq { border-top: 2px solid var(--ink); max-width: 820px; }
+.faq details { border-bottom: 1px solid var(--rule); }
+.faq summary {
+  display: flex; justify-content: space-between; align-items: center; gap: 16px; min-height: 64px; cursor: pointer;
+  font-family: var(--font-display); font-weight: 650; font-size: 22px; list-style: none;
+}
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: '+'; font-family: var(--font-sans); font-weight: 400; font-size: 28px; color: var(--ink-2); transition: transform var(--dur-med) var(--ease-settle); }
+.faq details[open] summary::after { transform: rotate(45deg); }
+.faq details p { padding: 0 0 20px; }
+
+.closing {
+  display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr); gap: 40px; align-items: end;
+  padding-top: 120px;
+}
+.closing h2 { font-size: clamp(44px, 6.4vw, 84px); }
+.closingAction { display: grid; gap: 10px; justify-items: start; }
+.closingAction :global(.btn) { min-height: 52px; padding: 0 24px; }
+
+@media (max-width: 900px) {
+  .hero, .split, .bandInner, .closing { grid-template-columns: minmax(0, 1fr); gap: 40px; }
+  .hero { padding-top: 40px; }
+  .facts ul { grid-template-columns: 1fr 1fr; }
+  .facts li { padding: 18px 12px; border-left: 0; border-top: 1px solid var(--rule-on-sunk); }
+  .facts li:first-child { padding-left: 12px; }
+  .step, .step:nth-child(even) { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .step:nth-child(even) .stepArt, .step:nth-child(even) .stepText { grid-column: auto; grid-row: auto; }
+  .stepNumber { font-size: 64px; }
+  .section { padding-top: 72px; }
+  .band { padding: 56px 0; }
+  .ctas :global(.btn) { width: 100%; }
+}

@@ -1,0 +1,23 @@
+.wrap { position: relative; }
+.avatar {
+  display: grid; place-items: center; width: var(--target); height: var(--target); border-radius: 50%;
+  border: 1.5px solid var(--ink); background: var(--marigold); color: var(--on-marigold);
+  font: 700 17px / 1 var(--font-display); cursor: pointer;
+}
+.avatar:hover { background: var(--ink); color: var(--paper); }
+
+.menu {
+  position: absolute; right: 0; top: calc(100% + 10px); z-index: 30; min-width: 240px;
+  display: grid; padding: 8px; border-radius: var(--r-card);
+  background: var(--paper-raised); border: 1px solid var(--rule-strong);
+  animation: menuIn var(--dur-short) var(--ease-settle);
+}
+@keyframes menuIn { from { opacity: 0; transform: translateY(-4px); } }
+.email { padding: 8px 12px 10px; font-size: var(--t-small); color: var(--ink-2); border-bottom: 1px solid var(--rule); margin-bottom: 6px; overflow-wrap: anywhere; }
+.menu a, .menu button {
+  display: flex; align-items: center; min-height: var(--target); padding: 0 12px; border-radius: 10px;
+  font: 600 var(--t-small) var(--font-sans); color: var(--ink); text-decoration: none;
+  background: none; border: 0; cursor: pointer; text-align: left;
+}
+.menu a:hover, .menu button:hover { background: var(--paper-sunk); color: var(--ink); }
+.menu button { color: var(--stamp); }

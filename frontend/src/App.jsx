@@ -1,78 +1,77 @@
-import { useState, useEffect } from 'react'
-import { supabase } from './lib/supabase'
-import LandingPage from './pages/LandingPage'
-import LoginPage from './pages/LoginPage'
+import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router'
+import AppLayout from './components/AppLayout'
+import PublicLayout from './components/PublicLayout'
+import { useAuth } from './lib/auth'
+import Account from './pages/Account'
+import Connect from './pages/Connect'
 import Dashboard from './pages/Dashboard'
+import Home from './pages/Home'
+import HowItWorks from './pages/HowItWorks'
+import Login from './pages/Login'
+import Privacy from './pages/Privacy'
+import Review from './pages/Review'
+import { Deleted, NotFound } from './pages/SimplePages'
+import Terms from './pages/Terms'
 import Transactions from './pages/Transactions'
+import YourData from './pages/YourData'
 
+// Real URLs: the host must serve index.html for every path (SPA fallback).
 export default function App() {
-  const [user, setUser]       = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [page, setPage]       = useState('landing') // landing | login | dashboard | transactions
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session?.user) {
-        setUser(data.session.user)
-        setPage('dashboard')
-      }
-      setLoading(false)
-    })
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        setUser(session.user)
-        setPage('dashboard')
-      } else {
-        setUser(null)
-        setPage('landing')
-      }
-    })
-
-    return () => listener.subscription.unsubscribe()
-  }, [])
-
-  const navigate = (p) => setPage(p)
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut()
-    setUser(null)
-    setPage('landing')
-  }
-
-  if (loading) return <Loader />
-
-  if (!user) {
-    if (page === 'login') return <LoginPage onNavigate={navigate} />
-    return <LandingPage onNavigate={navigate} />
-  }
-
-  if (page === 'transactions') {
-    return <Transactions user={user} onNavigate={navigate} onSignOut={handleSignOut} />
-  }
-
-  return <Dashboard user={user} onNavigate={navigate} onSignOut={handleSignOut} />
+  return (
+    <Routes>
+      <Route element={<PublicLayout />}>
+        <Route index element={<GmailReturn><Home /></GmailReturn>} />
+        <Route path="how-it-works" element={<HowItWorks />} />
+        <Route path="your-data" element={<YourData />} />
+        <Route path="privacy" element={<Privacy />} />
+        <Route path="terms" element={<Terms />} />
+        <Route path="deleted" element={<Deleted />} />
+        <Route path="*" element={<NotFound />} />
+      </Route>
+      <Route path="login" element={<SignedOutOnly><Login /></SignedOutOnly>} />
+      <Route element={<RequireAuth />}>
+        <Route path="connect" element={<Connect />} />
+        <Route path="app" element={<AppLayout />}>
+          <Route index element={<Dashboard />} />
+          <Route path="transactions" element={<Transactions />} />
+          <Route path="review" element={<Review />} />
+          <Route path="account" element={<Account />} />
+        </Route>
+      </Route>
+    </Routes>
+  )
 }
 
-function Loader() {
+function RequireAuth() {
+  const { user, ready } = useAuth()
+  if (!ready) return <SessionCheck />
+  if (!user) return <Navigate to="/login" replace />
+  return <Outlet />
+}
+
+// Signed-in visitors to the login page go to the app.
+function SignedOutOnly({ children }) {
+  const { user, ready } = useAuth()
+  const { search } = useLocation()
+  if (!ready) return <SessionCheck />
+  if (user) return <Navigate to={`/app${search}`} replace />
+  return children
+}
+
+// Home is open to everyone. Only the backend's /?gmail=<result> redirect
+// after connecting Gmail is sent on to the dashboard, with its query string.
+function GmailReturn({ children }) {
+  const { user } = useAuth()
+  const { search } = useLocation()
+  if (user && new URLSearchParams(search).has('gmail')) return <Navigate to={`/app${search}`} replace />
+  return children
+}
+
+function SessionCheck() {
   return (
-    <div style={{
-      height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'var(--obsidian)'
-    }}>
-      <div style={{ textAlign: 'center' }}>
-        <div style={{
-          width: 40, height: 40, borderRadius: '50%',
-          border: '2px solid var(--surface-2)',
-          borderTopColor: 'var(--gold)',
-          animation: 'spin 0.8s linear infinite',
-          margin: '0 auto 16px'
-        }} />
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        <p style={{ color: 'var(--text-tertiary)', fontSize: 13, fontFamily: 'var(--font-mono)' }}>
-          initialising...
-        </p>
-      </div>
+    <div className="page" style={{ paddingTop: 80 }} aria-busy="true">
+      <span className="spinner" aria-hidden="true" />
+      <span className="visually-hidden">Checking your session</span>
     </div>
   )
 }

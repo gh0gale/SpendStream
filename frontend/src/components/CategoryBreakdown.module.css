@@ -1,0 +1,25 @@
+.table { table-layout: fixed; }
+.table th:nth-child(1) { width: 34%; }
+.table th:nth-child(3) { width: 22%; }
+.table th:nth-child(4) { width: 12%; }
+
+.name { font-weight: 600; }
+.name a { color: var(--ink); }
+.name a:hover { color: var(--accent); }
+.barCell { padding-right: 16px; }
+.unsure th, .unsure td { border-top: 1px dashed var(--pencil); }
+
+@media (max-width: 640px) {
+  .table { table-layout: auto; }
+  .table thead { display: none; }
+  .table tr { display: grid; grid-template-columns: 1fr auto; column-gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--rule); }
+  .table th, .table td { border: 0; padding: 0; }
+  .table th[scope='row'] { grid-column: 1; grid-row: 1; }
+  .table td:global(.amount):not(.share) { grid-column: 2; grid-row: 1; }
+  .barCell { grid-column: 1 / -1; padding: 6px 0 0; }
+  .share { display: none; }
+  .unsure { border-top: 1px dashed var(--pencil); }
+}
+
+.compact th, .compact td { padding-top: 7px; padding-bottom: 7px; }
+.compact .bar-track, .compact :global(.bar-track) { height: 10px; }
