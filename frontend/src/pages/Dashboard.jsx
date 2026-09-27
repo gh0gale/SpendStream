@@ -25,6 +25,12 @@ const GMAIL_RESULTS = {
   error:     { text: "Google didn't complete the connection. Try again.", action: 'Try again' },
 }
 
+const MONTH_KEY = 'spendstream.dashboardMonth'
+
+function readSavedMonth() {
+  try { return sessionStorage.getItem(MONTH_KEY) } catch { return null }
+}
+
 export default function Dashboard() {
   usePageTitle('Dashboard')
   const { user } = useAuth()
@@ -48,10 +54,18 @@ export default function Dashboard() {
     if (gmailResult === 'connected') start()
   }, [gmailResult, setParams, start])
 
-  const [monthIndex, setMonthIndex] = useState(0)
+  // The selected month survives leaving the page (per tab). Stored by month,
+  // not index, so a new month arriving does not shift the selection.
+  const [monthKey, setMonthKey] = useState(readSavedMonth)
   const months = spending.months
-  const index = Math.min(monthIndex, Math.max(months.length - 1, 0))
+  const index = Math.max(months.findIndex(m => m.month === monthKey), 0)
   const current = months[index]
+  const selectMonth = (i) => {
+    const key = months[i]?.month
+    if (!key) return
+    setMonthKey(key)
+    try { sessionStorage.setItem(MONTH_KEY, key) } catch { /* storage blocked: selection lasts this visit only */ }
+  }
 
   const firstSync = sync.sync?.state === 'running' && spending.status === 'ready' && months.length === 0
   const result = gmailResult && GMAIL_RESULTS[gmailResult]
@@ -90,7 +104,7 @@ export default function Dashboard() {
             current={current}
             previous={months[index + 1]}
             index={index}
-            onMonth={setMonthIndex}
+            onMonth={selectMonth}
             months={months}
             userId={user.id}
           />
