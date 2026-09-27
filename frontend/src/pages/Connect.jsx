@@ -4,6 +4,7 @@ import { WakingNote } from '../components/States'
 import { apiFetch } from '../lib/api'
 import { useBackendAction } from '../lib/useBackendAction'
 import { usePageTitle } from '../lib/usePageTitle'
+import { CONTACT_EMAIL } from './legal'
 import styles from './Connect.module.css'
 
 export default function Connect() {
@@ -49,6 +50,10 @@ export default function Connect() {
               </tbody>
             </table>
             <Link to="/your-data" className="link-arrow">Read exactly what we keep</Link>
+            <p className="caption">
+              Bank somewhere else? Forward one alert (blank the account number) to{' '}
+              <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a> and we'll add it.
+            </p>
             <div className={styles.actions}>
               <button type="button" className="btn btn-primary" onClick={() => setStep(2)}>Continue</button>
               <Link to="/app">Not now</Link>

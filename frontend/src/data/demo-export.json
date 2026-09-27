@@ -8,8 +8,8 @@
     },
     {
       "category": "Transfer",
-      "total": 9280.0,
-      "count": 9
+      "total": 10844.0,
+      "count": 8
     },
     {
       "category": "Transport",
@@ -28,8 +28,8 @@
     },
     {
       "category": "Food",
-      "total": 1267.93,
-      "count": 10
+      "total": 1336.91,
+      "count": 11
     },
     {
       "category": "Groceries",
@@ -40,11 +40,16 @@
       "category": "Health",
       "total": 80.0,
       "count": 1
+    },
+    {
+      "category": "Utilities",
+      "total": 76.0,
+      "count": 2
     }
   ],
   "unsure": {
-    "total": 1640.0,
-    "count": 1
+    "total": 0.0,
+    "count": 0
   },
   "alert": {
     "text": "Dear Customer, Greetings from HDFC Bank! Rs.1994.50 is debited from your account ending 0000 towards VPA irctcrailweb@axl (IRCTC Rail Web) on 13-07-26. UPI transaction reference no.: 000000000000.",

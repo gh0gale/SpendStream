@@ -266,6 +266,7 @@ def test_removed_routes():
 
 def test_health():
     main.supabase_admin = FakeDB()
+    main._health_hits = {}
     r = client.get("/health")
     check("Phase 7 /health reports ok when the database answers, without a login",
           r.status_code == 200 and r.json() == {"status": "ok", "database": "ok"}, r.text)
@@ -277,6 +278,27 @@ def test_health():
     r = client.get("/health")
     check("Phase 7 /health is 503 when the database is unreachable", r.status_code == 503, r.status_code)
     check("Phase 7 /health does not leak the error text", "secret" not in r.text and "10.0.0.5" not in r.text, r.text)
+
+
+def test_health_rate_limit():
+    main.supabase_admin = FakeDB()
+    main._health_hits = {}
+    for _ in range(main.HEALTH_RATE_LIMIT):
+        r = client.get("/health")
+    check("SEC-06 /health allows up to the per-IP limit", r.status_code == 200, r.status_code)
+    r = client.get("/health")
+    check("SEC-06 /health is 429 with Retry-After once the limit is exceeded",
+          r.status_code == 429 and r.headers.get("retry-after") == "60", (r.status_code, dict(r.headers)))
+
+    main._health_hits = {}
+    real_limit = main.HEALTH_RATE_LIMIT
+    main.HEALTH_RATE_LIMIT = 0
+    try:
+        check("SEC-06 the check fails when the limit is removed (proves it is load-bearing)",
+              client.get("/health").status_code == 429)
+    finally:
+        main.HEALTH_RATE_LIMIT = real_limit
+        main._health_hits = {}
 
 
 def test_model_info_needs_login():
@@ -454,8 +476,8 @@ def test_delete_account():
 
 if __name__ == "__main__":
     for test in (test_config, test_crypto, test_cors, test_cron, test_removed_routes,
-                 test_health, test_model_info_needs_login, test_oauth, test_oauth_start_throttle,
-                 test_sync_limit, test_interrupted_jobs, test_delete_account):
+                 test_health, test_health_rate_limit, test_model_info_needs_login, test_oauth,
+                 test_oauth_start_throttle, test_sync_limit, test_interrupted_jobs, test_delete_account):
         test()
     print(f"\n{len(FAILED)} check(s) failed" if FAILED else "\nALL API SECURITY CHECKS PASSED")
     sys.exit(1 if FAILED else 0)

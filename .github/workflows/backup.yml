@@ -1,0 +1,60 @@
+# Weekly encrypted database backup (plan Phase 9).
+#
+# pg_dump against the production Supabase Postgres connection, encrypted
+# symmetrically with gpg, kept 7 days as a workflow artifact (decided:
+# docs/SYSTEM_AUDIT_AND_PLAN.md section L, Phase 9). Restore drill:
+# docs/USER_TODO.md.
+#
+# Repository secrets (docs/USER_TODO.md):
+#   SUPABASE_DB_URL     Project Settings -> Database -> Connection string
+#                        (URI, "Session pooler" or direct connection)
+#   BACKUP_PASSPHRASE   kept offline in two places, separate from the repo
+#                        and from the backups themselves; losing it makes
+#                        every backup unreadable
+
+name: Weekly backup
+
+on:
+  schedule:
+    - cron: "0 20 * * 0"   # Sunday 01:30 IST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check the secrets are set
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ] || [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "SUPABASE_DB_URL and BACKUP_PASSPHRASE repository secrets are required (docs/USER_TODO.md)."
+            exit 1
+          fi
+
+      - name: Install postgresql-client
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Dump and encrypt
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          stamp=$(date -u +%Y%m%d)
+          pg_dump "$SUPABASE_DB_URL" --no-owner --no-privileges -f "spendstream-$stamp.sql"
+          gpg --batch --yes --symmetric --cipher-algo AES256 \
+              --passphrase "$BACKUP_PASSPHRASE" "spendstream-$stamp.sql"
+          rm "spendstream-$stamp.sql"
+          echo "BACKUP_NAME=spendstream-$stamp.sql.gpg" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BACKUP_NAME }}
+          path: ${{ env.BACKUP_NAME }}
+          retention-days: 7

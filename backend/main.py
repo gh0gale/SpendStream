@@ -65,6 +65,15 @@ OAUTH_STATE_TTL      = timedelta(minutes=10)
 OAUTH_START_LIMIT    = 5                       # Gmail connect attempts per user per OAUTH_STATE_TTL
 MANUAL_SYNC_INTERVAL = timedelta(minutes=10)
 GMAIL_SCOPE          = "https://www.googleapis.com/auth/gmail.readonly"
+HEALTH_RATE_LIMIT    = 30                      # /health requests per IP per HEALTH_RATE_WINDOW [SEC-06]
+HEALTH_RATE_WINDOW   = timedelta(minutes=1)
+
+# /health is public and unauthenticated, so it is throttled per IP in memory
+# rather than per user in the database. Single uvicorn worker only (already
+# assumed elsewhere: backend.md, sync_jobs cleanup on startup).
+# ponytail: unbounded dict keyed by IP, never evicted; fine at this traffic
+# level, cap it (e.g. LRU) if distinct-IP churn ever becomes a memory concern.
+_health_hits: dict[str, list[datetime]] = {}
 
 # Tables with per-user rows, children before parents (foreign keys).
 # gold_monthly_summary is a view over silver_transactions, so it is not listed.
@@ -121,12 +130,26 @@ def ping():
 
 
 @app.get("/health")
-def health():
+def health(request: Request):
     """
     The process can reach the database: one tiny read. For uptime monitors
     (plan Phase 7); returns no data, so it needs no login. 503 when the read
     fails, with the reason kept in the server log, not the response.
+    Per-IP throttled [SEC-06]: public and unauthenticated, and each call is a
+    real database read.
     """
+    ip  = request.client.host if request.client else "unknown"
+    now = datetime.now(timezone.utc)
+    hits = [t for t in _health_hits.get(ip, []) if now - t < HEALTH_RATE_WINDOW]
+    if len(hits) >= HEALTH_RATE_LIMIT:
+        return JSONResponse(
+            status_code=429,
+            content={"status": "rate_limited"},
+            headers={"Retry-After": str(int(HEALTH_RATE_WINDOW.total_seconds()))},
+        )
+    hits.append(now)
+    _health_hits[ip] = hits
+
     try:
         supabase_admin.table("gmail_sync").select("user_id").limit(1).execute()
     except Exception as e:

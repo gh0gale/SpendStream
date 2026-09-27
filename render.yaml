@@ -1,0 +1,43 @@
+# Render Blueprint for the backend (plan Phase 9). Deploy: Render dashboard ->
+# New -> Blueprint -> point at this repo. Render builds backend/Dockerfile
+# and starts it with the CMD already in that file (uvicorn on $PORT is not
+# needed here: the Dockerfile binds 0.0.0.0:8000 and Render's free web
+# service maps that port automatically).
+#
+# Region: Singapore (closest free region to the Mumbai Supabase project).
+# Health check: /ping (process only, no DB read) so Render's own polling
+# never competes with the /health per-IP limit (SEC-06) that UptimeRobot uses.
+#
+# Every secret below is sync: false, so it is typed once in the Render
+# dashboard (Environment tab) and never stored in this file or in git.
+# docs/USER_TODO.md lists where each value comes from.
+
+services:
+  - type: web
+    name: spendstream-backend
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /ping
+    autoDeployTrigger: commit
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: BACKEND_URL
+        sync: false
