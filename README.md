@@ -1,16 +1,13 @@
 <div align="center">
 
-<br />
+# SpendStream
 
-
-
-**Intelligent financial tracking that learns your spending habits — automatically.**
+**Your bank alerts, sorted into a monthly spending picture. Correct a merchant once and it stays corrected.**
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-20232A?style=flat-square&logo=react&logoColor=61DAFB)](https://reactjs.org/)
 [![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=flat-square&logo=supabase&logoColor=white)](https://supabase.com/)
 [![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?style=flat-square&logo=scikit-learn&logoColor=white)](https://scikit-learn.org/)
-
 
 </div>
 
@@ -18,68 +15,71 @@
 
 ## What is SpendStream?
 
-SpendStream syncs with your Gmail to automatically detect bank alerts, extract transactions, and categorize them using a self-learning ML model. The more you use it and correct it, the smarter it gets — adapting to *your* spending patterns, not a generic template.
-
-### The four-step flow
+SpendStream reads the debit alerts your bank sends to Gmail, turns each one into a transaction, and sorts it into one of 13 categories. You see where the month's money went. When it gets a merchant wrong, you correct it once: every other payment to that payee moves with it, and every future one follows your choice.
 
 | Step | What happens |
 |------|-------------|
-| 🔗 **Connect** | Securely link your Gmail via OAuth |
-| 🔍 **Detect** | Transactions are extracted instantly from bank alert emails |
-| 🗂️ **Sort** | An ML model auto-categorizes every transaction |
-| 📈 **Grow** | Monthly summaries and dashboards surface spending insights |
+| **Connect** | Link Gmail through Google OAuth (read-only scope). Only bank-alert emails are searched |
+| **Read** | Debits are parsed from the alerts. Credits, refunds, reversals, OTPs and declined payments are skipped |
+| **Sort** | Your own rules first, then a classifier. Below 50% confidence a payment is left as Unsure |
+| **Review** | A monthly dashboard, a transaction list filtered by month and category and a Needs review queue grouped by merchant |
+
+Gmail is the only source. The first sync reads the current month; later syncs pick up from the last one, three times a day or on demand (once per 10 minutes).
 
 ---
 
-## Architecture: The Medallion Pipeline
-
-SpendStream processes data through a four-stage pipeline that guarantees integrity and full traceability from raw email to dashboard insight.
+## Architecture
 
 ```
-Gmail API (bank alert emails)
-        │
+Gmail API (bank alerts)
+        │   tasks.py: list, download 4 at a time, retry, parse (gmail_parser.py)
         ▼
-┌─────────────────┐
-│   RAW LAYER     │  Unprocessed transaction data
-└────────┬────────┘
-         │
+┌──────────────────┐
+│ transactions     │  raw rows, unique per Gmail message id
+└────────┬─────────┘
+         ▼  etl.py work queues, 200 rows per batch
+┌──────────────────┐
+│ bronze           │  deduplicated by fingerprint of the message id
+└────────┬─────────┘
          ▼
-┌─────────────────┐
-│  BRONZE LAYER   │  Deduplication via content hash (amount + receiver + date)
-└────────┬────────┘
-         │
+┌──────────────────┐
+│ silver           │  cleaned merchant name, stable merchant_key, person or business,
+│                  │  date in India time, then a category:
+│                  │    1. your rule for this merchant_key
+│                  │    2. the shared merchant directory (3+ users agreeing at 80%+)
+│                  │    3. the model
+└────────┬─────────┘
          ▼
-┌─────────────────┐
-│  SILVER LAYER   │  Merchant normalization + ML categorization + confidence scoring
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│   GOLD LAYER    │  Monthly aggregates → Spend Tracker visualizations
-└─────────────────┘
+┌──────────────────┐
+│ gold (a view)    │  monthly totals per category, always current
+└──────────────────┘
 ```
+
+The browser reads its own rows straight from Supabase (row-level security on every table) and writes only through one Postgres function, `correct_category()`. The FastAPI backend handles Gmail OAuth, syncs and account deletion with the service-role key. Background work runs in FastAPI `BackgroundTasks`; there is no Celery or Redis.
 
 ---
 
-## Machine Learning Engine
+## Categorisation
 
-SpendStream uses a **hybrid ML approach** that works out of the box and improves over time.
+### Your corrections are rules
 
-### Order of decisions
-1. **Your own rule.** Correct a merchant once and every past and future payment to it takes your category, keyed on its UPI payee id. The model is not asked again.
-2. **Shared directory** of merchants several users agreed on (switched off at the current scale).
-3. **The model**, for merchants you have not corrected. Below 50% confidence a row is left uncategorised, and waits in Needs review.
+Each transaction carries a `merchant_key`: the UPI payee id when there is one (`upi:swiggy@icici`), else the cleaned name. A correction is saved as your rule for that key and applied, in the same database transaction, to your other payments to that payee. The pipeline checks your rules before anything else, so the model is never asked about that merchant again. Matching is exact: correcting "Sharma General Store" cannot touch "Sharma Medical".
+
+Your corrections are never shared as such. Other users benefit only through the merchant directory, which holds a merchant only when at least 3 users agree at 80% or more, and never payments to people.
 
 ### The model
-A **logistic regression** over TF-IDF character and word n-grams of the cleaned merchant name, plus amount and time features. Payments to a shop QR code (Paytm, BharatPe, PhonePe merchant QRs) carry a marker, so a shop under its owner's name is not read as a transfer. No torch or sentence embeddings: dropping them cost no accuracy and cut memory from about 600 MB to about 200 MB.
 
-**Measured on 132 real, hand-labelled transactions** the model never trained on: 79.5% accuracy (the model before September 2026 scored 38.6%). The shipped model is then retrained on all data, including those rows.
+A logistic regression over TF-IDF character (2 to 5) and word (1 to 2) n-grams of the cleaned merchant name, plus amount and India-time hour and weekday. Payments to shop QR codes (Paytm, BharatPe, PhonePe merchant QRs and similar) carry a marker, so a shop under its owner's name is not read as a transfer to a person. The categoriser is stateless: no database access, no per-user memory. The feature code lives in one file (`backend/ml/features.py`) shared by training, evaluation and prediction.
 
-### Learning from corrections
-A correction is stored as a per-user rule in Postgres and applied immediately to your other transactions from the same payee. Corrections never retrain the shared model at request time.
+**Measured on 312 real, hand-labelled debits the compare model never trained on: 87.8% accuracy (95% interval 84.3 to 91.3%), macro-F1 0.745.** The shipped model is trained on the same recipe plus those rows, so it cannot be scored on them.
 
-### Pattern Boosts
-A heuristic layer boosts probability scores based on historical frequency and amount patterns, enabling automatic detection of recurring subscriptions.
+### Retraining
+
+- Corrections never retrain the model.
+- `backend/retrain.sh` runs a gated retrain: a compare run scored on the golden set, then the ship run.
+- A weekly GitHub Actions job (`weekly_retrain.py`) retrains only when the merchant directory holds at least 20 merchants and 100 transactions the live model has not seen, and ships only if the new model matches or beats the current baseline.
+
+The trained model files are **not in this repository**: their vocabulary holds real payee names. They live in a private Supabase Storage bucket, and the API downloads the live model at startup (`backend/model_store.py`).
 
 ---
 
@@ -87,79 +87,74 @@ A heuristic layer boosts probability scores based on historical frequency and am
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend** | React (Vite), Vanilla CSS, Supabase Auth |
-| **Backend API** | FastAPI (Python) |
-| **Database** | Supabase (PostgreSQL) |
-| **ML** | scikit-learn 1.7.2, Sentence-Transformers, Pandas, NumPy, Joblib |
-
+| **Frontend** | React 19, Vite 7, react-router 7, plain CSS (one design-system stylesheet plus CSS modules), Supabase JS |
+| **Backend API** | FastAPI (Python 3.12), `requests` for Gmail and Google OAuth, Fernet-encrypted refresh tokens |
+| **Database** | Supabase (Postgres) with row-level security; schema in `supabase/migrations/` |
+| **ML** | scikit-learn 1.7.2 (pinned), NumPy, SciPy, joblib. No torch or sentence embeddings |
+| **Automation** | GitHub Actions: CI, scheduled sync (3 times a day), weekly retrain |
 
 ---
 
 ## Engineering Decisions
 
-### Process Isolation & Persistent ML Memory
-The ML model's "memory" (user history and corrections) was originally in-process RAM. In production, the API server and Celery worker are separate processes — the worker couldn't see what the API learned.
+### Rules before the model
+Corrections used to feed an in-memory history and an online refit of one shared model: one user's clicks shifted everyone's predictions, and the lookup keyed on the display name while prediction used the raw receiver, so corrections rarely matched. Now a correction is a per-user row in Postgres keyed on `merchant_key`, the model is stateless, and shared knowledge needs agreement from several users.
 
-**Fix:** Migrated `HistoryStore` and `UserOverrideStore` to be fully DB-backed. The inference loop now queries Supabase for the latest user feedback before every prediction.
+### A real accuracy number
+Earlier accuracy figures were measured on the training templates. A golden set of real, hand-labelled debits, split by merchant so no merchant appears in both training and test, is the only score a model change is judged on. The model before September 2026 scored 38.6% on it.
 
-### API Performance & 504 Timeouts
-Inline model retraining on user corrections was blocking the FastAPI async event loop, causing gateway timeouts under load.
+### Fitting a small host
+Sentence embeddings (torch plus MiniLM) made no difference to golden-set accuracy and cost about 400 MB. Dropping them took peak memory from about 606 MB to about 220 MB and the image from 627 MB to about 190 MB.
 
-**Fix:** Retraining was moved off the request path. Since 2026-09-15 corrections do not retrain the model at all; retraining is an offline job (`train_model.py`), gated on a real-data golden set (`retrain.sh`).
+### Syncs that do not lose mail
+Each sync is a `sync_jobs` row the dashboard polls. The cursor always moves forward; messages that fail to download (rate limits, server errors) are kept and retried on the next sync, so one bad message cannot make every sync re-read the whole window.
 
-### Serialization Failures
-NumPy types (`np.str_`, `np.float32`) returned by the ML model caused JSON serialization errors during database upserts.
-
-**Fix:** A recursive type-casting layer in the ETL pipeline converts all ML outputs to native Python types before they leave the inference layer.
-
-### Environment Synchronization
-`scikit-learn` version mismatches between local and production environments caused silent prediction failures where every transaction was categorized as "Other".
-
-**Fix:** Pinned exact versions in `requirements.txt`. An `os.path.getmtime` check also exists in `_load_model`, but it never runs once a model is loaded, so restart the server after retraining.
+### Pinned scikit-learn
+A version mismatch between training and serving once turned every prediction into "Other". scikit-learn is pinned to 1.7.2, the image installs exact versions from `requirements.lock`, and the loader refuses a model whose feature layout does not match the code.
 
 ---
 
 ## Getting Started
 
 ### Prerequisites
-- Python 3.10+
-- Node.js 18+
-- A Supabase project
-- Google Cloud project with Gmail API + OAuth enabled
-
+- Docker (or Python 3.12)
+- Node.js 20+
+- A Supabase project with the migrations in `supabase/migrations/` applied
+- A Google Cloud project with the Gmail API and an OAuth web client; redirect URI `http://localhost:8000/auth/callback`
+- A trained model in the Supabase bucket `models` (`python model_store.py push-model`), or `python train_model.py` for a templates-only model
 
 ### Backend
 
 ```bash
-# Clone the repo
-git clone https://github.com/your-username/spendstream.git
-cd spendstream/backend
+git clone https://github.com/gh0gale/SpendStream.git
+cd SpendStream
 
-# Install dependencies
-pip install -r requirements.txt
+cp backend/.env.example backend/.env
+# Fill in SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
+# GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, CRON_SECRET, TOKEN_ENCRYPTION_KEY
+# (the file shows how to generate the last two). The API refuses to start without them.
 
-# Configure environment
-cp .env.example .env
-# Fill in: SUPABASE_URL, SUPABASE_KEY, GOOGLE_CLIENT_ID,
-#          GOOGLE_CLIENT_SECRET, REDIS_URL
-
-# Start the API server
-uvicorn main:app --reload
-
-# In a separate terminal, start the Celery worker
-celery -A tasks.celery worker --loglevel=info
+docker compose up --build                              # API on :8000, reloads on edits
+docker compose run --rm backend python cron_runner.py  # one-shot sync of every connected user
 ```
+
+Without Docker, from `backend/`: `python -m venv .venv`, install `requirements.txt`, then `uvicorn main:app --reload`.
 
 ### Frontend
 
 ```bash
-cd ../frontend
+cd frontend
+cp .env.example .env   # VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_API_URL
+npm ci
+npm run dev            # http://localhost:5173
+```
 
-# Install dependencies
-npm install
+### Tests
 
-# Start the dev server
-npm run dev
+```bash
+cd backend && sh run_tests.sh      # eight offline test scripts; no .env, network or database
+sh supabase/tests/run_local.sh     # migrations and row-level security on a throwaway Postgres (Docker)
+cd frontend && npm run lint && npm run build
 ```
 
 ---
@@ -167,28 +162,35 @@ npm run dev
 ## Project Structure
 
 ```
-spendstream/
+SpendStream/
 ├── backend/
-│   ├── main.py              # FastAPI app & routes
-│   ├── tasks.py             # Celery task definitions
-│   ├── pipeline/
-│   │   ├── raw.py           # Gmail API ingestion & CSV parsing
-│   │   ├── bronze.py        # Deduplication & fingerprinting
-│   │   ├── silver.py        # ML categorization
-│   │   └── gold.py          # Aggregation layer
-│   ├── ml/
-│   │   ├── embeddings.py    # Sentence Transformer cold-start
-│   │   ├── classifier.py    # SGDClassifier + TF-IDF
-│   │   └── boosts.py        # Heuristic pattern layer
-│   ├── stores/
-│   │   ├── history.py       # DB-backed HistoryStore
-│   │   └── overrides.py     # DB-backed UserOverrideStore
-│   └── requirements.txt
-└── frontend/
-    ├── src/
-    │   ├── components/      # React components
-    │   └── pages/           # Dashboard, Connect, Insights
-    └── package.json
+│   ├── main.py               # FastAPI routes: OAuth, sync, cron, health, account deletion
+│   ├── tasks.py              # Gmail sync jobs
+│   ├── gmail_parser.py       # Bank alert -> transaction (pure functions)
+│   ├── etl.py                # raw -> bronze -> silver -> categorised
+│   ├── merchant_identity.py  # Clean name, merchant_key, person or business, shop QR
+│   ├── config.py             # The only module that reads environment variables
+│   ├── token_crypto.py       # Refresh-token encryption
+│   ├── model_store.py        # Model files in the private Supabase bucket
+│   ├── train_model.py        # Training
+│   ├── evaluate_model.py     # Golden-set scoring (the release gate)
+│   ├── weekly_retrain.py     # Automated gated retrain
+│   ├── retrain.sh            # Local gated retrain
+│   ├── cron_runner.py        # One-shot sync of all users
+│   ├── test_*.py             # Standalone test scripts
+│   └── ml/
+│       ├── features.py       # The one feature definition
+│       └── categoriser.py    # Stateless prediction
+├── supabase/
+│   ├── migrations/           # Schema, row-level security, correct_category(), apply_predictions()
+│   └── tests/                # run_local.sh and SQL checks
+├── frontend/src/
+│   ├── pages/                # Home, How it works, Your data, Privacy, Terms, Login, Connect,
+│   │                         # Dashboard, Transactions, Needs review, Account
+│   ├── components/
+│   └── lib/                  # Supabase client, API helper, data hooks
+├── .github/workflows/        # ci.yml, sync.yml, retrain.yml
+└── compose.yaml
 ```
 
 ---
