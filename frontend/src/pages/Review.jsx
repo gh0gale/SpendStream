@@ -68,6 +68,8 @@ export default function Review() {
   }
 
   const count = groups.reduce((s, g) => s + g.rows.length, 0)
+  const merchants = queue.data?.length ?? 0
+  const done = merchants - groups.length
 
   return (
     <div className={styles.page}>
@@ -83,6 +85,18 @@ export default function Review() {
         payments to the same merchant are sorted automatically.
       </p>
 
+      {merchants > 0 && (
+        <div className={`card ${styles.progress}`}>
+          <p className="small">
+            <strong className="num">{done} of {merchants}</strong> {merchants === 1 ? 'merchant' : 'merchants'} sorted on this visit
+          </p>
+          <div className={styles.meter} role="progressbar" aria-label="Merchants sorted on this visit"
+            aria-valuemin={0} aria-valuemax={merchants} aria-valuenow={done}>
+            <span style={{ width: `${(done / merchants) * 100}%` }} />
+          </div>
+        </div>
+      )}
+
       <ResultNotice result={result} onClose={() => setResult(null)} onRetry={() => { const r = result.retry; setResult(null); r() }} />
 
       {queue.status === 'error' ? (
@@ -90,17 +104,26 @@ export default function Review() {
       ) : !queue.data ? (
         <SkeletonRows rows={5} height={48} />
       ) : groups.length === 0 ? (
-        <p>Nothing to review. <Link to="/app">Back to the dashboard</Link></p>
+        <div className={`card ${styles.clear}`}>
+          <h2>Nothing to review</h2>
+          <p className="muted">Every payment has a category. New ones that SpendStream is unsure about will wait here.</p>
+          <Link to="/app" className="link-arrow">Back to the dashboard</Link>
+        </div>
       ) : (
         <ul className={styles.groups}>
           {groups.map(g => (
             <li key={g.key} className={styles.group}>
+              <span className={`monogram ${g.isPerson ? 'monogram-person' : ''}`} aria-hidden="true">
+                {g.merchant.trim().charAt(0)}
+              </span>
               <div className={styles.summary}>
                 <p className={styles.merchant}>
                   {g.merchant}
                   {g.isPerson && <span className="small muted"> to a person</span>}
                 </p>
-                <p className="small muted num">{plural(g.rows.length, 'payment')} · {formatINR(g.total, { paise: true })}</p>
+                <p className="small muted">
+                  <span className={`num ${styles.total}`}>{formatINR(g.total, { paise: true })}</span> across {plural(g.rows.length, 'payment')}
+                </p>
                 <details className={styles.dates}>
                   <summary className="small">Show {g.rows.length === 1 ? 'the payment' : `all ${g.rows.length}`}</summary>
                   <p className="small num">
@@ -110,7 +133,7 @@ export default function Review() {
               </div>
               <button
                 type="button"
-                className="btn"
+                className="btn btn-primary"
                 ref={el => { if (el) buttons.current.set(g.key, el); else buttons.current.delete(g.key) }}
                 onClick={() => setPicking(g)}
               >

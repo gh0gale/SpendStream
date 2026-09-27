@@ -28,20 +28,22 @@ export default function Account() {
         <h1 className="display">Account</h1>
       </header>
 
-      <section className={styles.section} aria-labelledby="gmail-h">
-        <h2 id="gmail-h" className="caption">Gmail</h2>
-        <GmailStatus gmail={gmail} onRetry={reloadGmail} />
-      </section>
+      <div className={styles.sheet}>
+        <section className={styles.section} aria-labelledby="gmail-h">
+          <h2 id="gmail-h" className="caption">Gmail</h2>
+          <div className={styles.body}><GmailStatus gmail={gmail} onRetry={reloadGmail} /></div>
+        </section>
 
-      <section className={styles.section} aria-labelledby="account-h">
-        <h2 id="account-h" className="caption">Account</h2>
-        <div className={styles.row}>
-          <p>Signed in as <strong>{user.email}</strong></p>
-          <button type="button" className="btn" onClick={signOut}>Sign out</button>
-        </div>
-      </section>
+        <section className={styles.section} aria-labelledby="account-h">
+          <h2 id="account-h" className="caption">Signed in</h2>
+          <div className={`${styles.body} ${styles.row}`}>
+            <p><strong>{user.email}</strong></p>
+            <button type="button" className="btn" onClick={signOut}>Sign out</button>
+          </div>
+        </section>
 
-      <DeleteAccount email={user.email} />
+        <DeleteAccount email={user.email} />
+      </div>
     </div>
   )
 }
@@ -98,37 +100,39 @@ function DeleteAccount({ email }) {
   }
 
   return (
-    <section className={styles.section} aria-labelledby="delete-h">
+    <section className={`${styles.section} ${styles.danger}`} aria-labelledby="delete-h">
       <h2 id="delete-h" className="caption">Delete account</h2>
-      <p>
-        Deleting removes every payment, every category rule and your sync history, deletes your Gmail
-        connection, and asks Google to revoke SpendStream's access. It cannot be undone.{' '}
-        <Link to="/privacy">Privacy Policy</Link>
-      </p>
-      {!open ? (
-        <button type="button" className="btn btn-danger" onClick={() => setOpen(true)}>Delete my account</button>
-      ) : (
-        <form className={styles.confirm} onSubmit={handleDelete}>
-          <div className="field">
-            <label htmlFor="confirm-email">Type your email to confirm</label>
-            <input id="confirm-email" className="input" type="email" autoComplete="off" autoFocus
-              value={typed} onChange={e => setTyped(e.target.value)} aria-describedby="confirm-help" />
-            <p id="confirm-help" className="help">
-              {matches ? 'This will delete everything.' : `Type ${email} to enable the button.`}
-            </p>
-          </div>
-          {error && <p className="help-error" role="alert">{error}</p>}
-          <div className={styles.row}>
-            <button type="submit" className="btn btn-danger" disabled={!matches || remove.pending}>
-              {remove.pending && <span className="spinner" aria-hidden="true" />}
-              {remove.waking ? 'Starting server' : remove.pending ? 'Deleting' : 'Delete everything'}
-            </button>
-            <button type="button" className="btn btn-text" disabled={remove.pending}
-              onClick={() => { setOpen(false); setTyped(''); setError('') }}>Cancel</button>
-          </div>
-          <WakingNote action={remove} />
-        </form>
-      )}
+      <div className={styles.body}>
+        <p>
+          Deleting removes every payment, every category rule and your sync history, deletes your Gmail
+          connection, and asks Google to revoke SpendStream's access. It cannot be undone.{' '}
+          <Link to="/privacy">Privacy Policy</Link>
+        </p>
+        {!open ? (
+          <button type="button" className="btn btn-danger" onClick={() => setOpen(true)}>Delete my account</button>
+        ) : (
+          <form className={styles.confirm} onSubmit={handleDelete}>
+            <div className="field">
+              <label htmlFor="confirm-email">Type your email to confirm</label>
+              <input id="confirm-email" className="input" type="email" autoComplete="off" autoFocus
+                value={typed} onChange={e => setTyped(e.target.value)} aria-describedby="confirm-help" />
+              <p id="confirm-help" className="help">
+                {matches ? 'This will delete everything.' : `Type ${email} to enable the button.`}
+              </p>
+            </div>
+            {error && <p className="help-error" role="alert">{error}</p>}
+            <div className={styles.row}>
+              <button type="submit" className="btn btn-danger" disabled={!matches || remove.pending}>
+                {remove.pending && <span className="spinner" aria-hidden="true" />}
+                {remove.waking ? 'Starting server' : remove.pending ? 'Deleting' : 'Delete everything'}
+              </button>
+              <button type="button" className="btn btn-text" disabled={remove.pending}
+                onClick={() => { setOpen(false); setTyped(''); setError('') }}>Cancel</button>
+            </div>
+            <WakingNote action={remove} />
+          </form>
+        )}
+      </div>
     </section>
   )
 }

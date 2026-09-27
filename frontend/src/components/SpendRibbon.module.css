@@ -1,0 +1,20 @@
+/* One bar split into segments; segment widths come from flex-grow, so a month
+   change animates them (the bar-width entry in the motion inventory). */
+.strip { display: flex; gap: 3px; height: 44px; width: 100%; }
+.seg {
+  flex: 0 1 0; min-width: 4px; display: flex; align-items: center; overflow: hidden;
+  background: var(--bar); color: var(--on-bar); border-radius: 3px;
+  transition: flex-grow var(--dur-med) var(--ease-settle);
+}
+.seg:first-child { border-radius: var(--r-control) 3px 3px var(--r-control); }
+.seg:last-child { border-radius: 3px var(--r-control) var(--r-control) 3px; }
+.seg:only-child { border-radius: var(--r-control); }
+.label {
+  padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: var(--t-caption); font-weight: 700; letter-spacing: 0.04em;
+}
+
+@media (max-width: 640px) {
+  .strip { height: 32px; }
+  .label { padding: 0 6px; }
+}

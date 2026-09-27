@@ -1,27 +1,43 @@
+/* Transactions: a filter card, then one ledger grouped by day. Each day opens
+   with its date and the day's total; each row leads with the payee's
+   monogram (square for a shop, circle for a person). */
 .page { display: grid; gap: 20px; align-content: start; }
 .page > :global(.btn) { justify-self: start; }
 
-.filters { display: grid; grid-template-columns: repeat(2, minmax(0, 240px)); gap: 16px; }
-.table { background: var(--paper-raised); border: 1px solid var(--rule); border-radius: var(--r-card); border-collapse: separate; border-spacing: 0; overflow: hidden; }
-.table tr:last-child > * { border-bottom: 0; }
+.filters { display: grid; grid-template-columns: repeat(2, minmax(0, 260px)); gap: 16px; padding: 16px 20px; }
 
-.date { width: 90px; color: var(--ink-2); }
+.table {
+  background: var(--paper-raised); border: 1px solid var(--rule); border-radius: var(--r-card);
+  border-collapse: separate; border-spacing: 0; overflow: hidden;
+}
+.table thead th { background: var(--paper-raised); }
+.table tbody:last-child tr:last-child > * { border-bottom: 0; }
+
+.dayRow th, .dayRow td {
+  background: var(--paper-sunk); border-bottom-color: var(--rule-on-sunk);
+  padding-top: 8px; padding-bottom: 8px; font-size: var(--t-small); font-weight: 600; color: var(--ink-2);
+}
+.dayRow th { padding-left: 16px; font-family: var(--font-display); font-weight: 650; font-size: 16px; color: var(--ink); }
+
+.mono { width: 60px; padding-left: 16px; }
 .merchant { font-weight: 600; overflow-wrap: anywhere; }
 .category { width: 170px; }
-.amount { width: 130px; }
+.amount { width: 140px; padding-right: 16px; font-weight: 600; }
 
 @media (max-width: 640px) {
-  .filters { grid-template-columns: 1fr; }
+  .filters { grid-template-columns: 1fr; padding: 14px; }
   .page > :global(.btn) { justify-self: stretch; }
 
   .table thead { display: none; }
   .table tr {
-    display: grid; grid-template-columns: 1fr auto; align-items: center; column-gap: 12px;
+    display: grid; grid-template-columns: auto 1fr auto; align-items: center; column-gap: 12px;
     padding: 10px 14px; border-bottom: 1px solid var(--rule);
   }
   .table th, .table td { border: 0; padding: 0; width: auto; }
-  .merchant { grid-column: 1; grid-row: 1; }
-  .amount { grid-column: 2; grid-row: 1; }
-  .date { grid-column: 1; grid-row: 2; font-size: var(--t-small); }
-  .category { grid-column: 2; grid-row: 2; justify-self: end; }
+  .dayRow { background: var(--paper-sunk); grid-template-columns: 1fr auto; }
+  .dayRow th, .dayRow td { padding: 0; }
+  .mono { grid-column: 1; grid-row: 1 / span 2; padding: 0; }
+  .merchant { grid-column: 2; grid-row: 1; }
+  .amount { grid-column: 3; grid-row: 1; padding: 0; }
+  .category { grid-column: 2 / -1; grid-row: 2; }
 }

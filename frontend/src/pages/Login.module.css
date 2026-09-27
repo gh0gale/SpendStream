@@ -1,21 +1,32 @@
-.wrap {
-  min-height: 100vh; display: grid; justify-items: center; align-content: start; gap: 24px;
-  padding: 56px var(--gutter) 40px;
-}
-.wordmark { font-family: var(--font-display); font-weight: 700; font-size: 32px; letter-spacing: -0.02em; color: var(--ink); text-decoration: none; }
+/* Sign in: a green brand panel on the left (on phones, a short band on top),
+   the form on paper on the right. */
+.wrap { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); }
 
+.brand { display: grid; align-content: space-between; gap: 40px; padding: 40px 48px; }
+.wordmark {
+  display: inline-flex; align-items: center; gap: 10px; width: fit-content;
+  font-family: var(--font-display); font-weight: 700; font-size: 24px; letter-spacing: -0.02em;
+  color: var(--on-band); text-decoration: none;
+}
+.rupee {
+  display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 9px;
+  background: var(--marigold); color: var(--on-marigold); font-family: var(--font-sans); font-size: 17px; font-weight: 700;
+}
+.pitch { font-size: clamp(34px, 3.6vw, 52px); line-height: 1.05; max-width: 14ch; }
+.points { list-style: none; display: grid; gap: 0; border-top: 1px solid var(--rule-strong); max-width: 420px; }
+.points li { padding: 14px 0; border-bottom: 1px solid var(--rule); color: var(--on-band-2); font-size: var(--t-small); }
+
+.side { display: grid; justify-items: center; align-content: center; gap: 20px; padding: 48px var(--gutter); }
 .panel {
-  width: 100%; max-width: 400px; display: grid; gap: 16px;
-  background: var(--paper-raised); border: 1px solid var(--rule); border-radius: 28px; padding: 28px;
+  width: 100%; max-width: 420px; display: grid; gap: 16px;
+  background: var(--paper-raised); border: 1px solid var(--rule); border-radius: var(--r-band); padding: 30px;
 }
 
-.toggle { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--rule-strong); border-radius: var(--r-control); }
+.toggle { display: grid; grid-template-columns: 1fr 1fr; padding: 4px; gap: 4px; border: 1px solid var(--rule); border-radius: var(--r-pill); background: var(--paper-sunk); }
 .toggleButton {
-  min-height: var(--target); border: 0; background: transparent; color: var(--ink-2);
+  min-height: 40px; border: 0; border-radius: var(--r-pill); background: transparent; color: var(--ink-2);
   font: 600 var(--t-body) var(--font-sans); cursor: pointer; transition: background var(--dur-colour), color var(--dur-colour);
 }
-.toggleButton:first-child { border-radius: var(--r-control) 0 0 var(--r-control); }
-.toggleButton:last-child { border-radius: 0 var(--r-control) var(--r-control) 0; }
 .toggleButton:hover { color: var(--ink); }
 .selected, .selected:hover { background: var(--ink); color: var(--paper); }
 
@@ -26,7 +37,11 @@
 .links { display: flex; gap: 24px; }
 .links a { display: inline-flex; align-items: center; min-height: var(--target); }
 
-@media (max-width: 480px) {
-  .wrap { padding-top: 32px; }
-  .panel { padding: 20px 16px; }
+@media (max-width: 860px) {
+  .wrap { grid-template-columns: minmax(0, 1fr); }
+  .brand { gap: 16px; padding: 24px var(--gutter); }
+  .pitch { font-size: 26px; max-width: none; }
+  .points { display: none; }
+  .side { align-content: start; padding-top: 28px; }
+  .panel { padding: 20px 16px; border-radius: 22px; }
 }

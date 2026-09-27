@@ -1,0 +1,44 @@
+.card { display: grid; gap: 26px; padding: 30px 34px; border-radius: var(--r-band); min-width: 0; container-type: inline-size; }
+
+.head { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.monthBar { display: flex; align-items: center; gap: 8px; width: 100%; max-width: 420px; }
+.monthName { flex: 1; font-family: var(--font-display); font-weight: 650; font-size: 22px; letter-spacing: -0.01em; }
+.monthBar .monthName { text-align: center; }
+.step {
+  min-height: var(--target); min-width: 72px; padding: 0 14px; border-radius: var(--r-pill); cursor: pointer;
+  background: transparent; color: var(--on-band); border: 1px solid var(--rule-strong);
+  font: 600 var(--t-small) var(--font-sans); transition: background var(--dur-colour), color var(--dur-colour);
+}
+.step:hover:not(:disabled) { background: var(--on-band); color: var(--band); }
+.step:disabled { opacity: 0.35; cursor: default; }
+
+.body { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 32px; align-items: end; }
+.totalBlock { display: grid; gap: 6px; }
+.total {
+  font-family: var(--font-display); font-weight: 650; letter-spacing: -0.03em;
+  font-size: clamp(52px, 6.4vw, 92px); line-height: 1; color: var(--marigold);
+}
+.note { color: var(--on-band-2); font-size: var(--t-small); }
+.compare { color: var(--on-band); font-size: var(--t-small); }
+.delta { font-weight: 700; }
+
+.figures { display: grid; grid-template-columns: auto auto minmax(0, 1fr); border-top: 1px solid var(--rule-strong); }
+.figures div { display: grid; gap: 4px; padding: 14px 14px 0 0; }
+.figures div + div { padding-left: 14px; border-left: 1px solid var(--rule); }
+.figures dt { font-size: var(--t-caption); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; color: var(--on-band-2); }
+.figures dd { font-family: var(--font-display); font-weight: 650; font-size: 22px; line-height: 1.2; overflow-wrap: break-word; }
+
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; }
+.actions :global(.link-arrow) { color: var(--on-band); }
+
+@media (max-width: 900px) {
+  .card { padding: 22px 16px; border-radius: 22px; gap: 20px; }
+  .monthBar { max-width: none; }
+  .figures dd { font-size: 18px; }
+}
+
+/* The card also sits in a half-width column on the home page: stack by its
+   own width, not the viewport's. */
+@container (max-width: 700px) {
+  .body { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+}

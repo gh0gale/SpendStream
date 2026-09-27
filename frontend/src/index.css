@@ -1,6 +1,6 @@
-/* SpendStream design system: "passbook, pencil and ink". Revised 2026-09-27
-   to a bolder ledger look: Fraunces headlines, a marigold highlighter,
-   passbook-navy bands and rubber-stamp category chips (docs/design/README.md 5).
+/* SpendStream design system: "passbook, pencil and ink". Revised 2026-09-28
+   from navy to passbook-cover green: Fraunces headlines, a marigold highlighter,
+   green bands and rubber-stamp category chips (docs/design/README.md 5).
    Every colour, size, radius and duration used in the app is a token here;
    shared component classes live at the bottom. CSS modules hold layout only. */
 
@@ -9,28 +9,29 @@
 
   --paper:        #F3EFE4;
   --paper-raised: #FAF7EF;
-  --paper-sunk:   #E9E3D3;
-  --rule:         #CBC3AE;
-  --rule-strong:  #8C846F;
-  --rule-on-sunk: #857D68;
-  --ink:          #1B2230;
-  --ink-2:        #4B5262;
-  --pencil:       #6A6457;
-  --accent:       #1E5B48;
+  --paper-sunk:   #E8E3D4;
+  --rule:         #CCC5B1;
+  --rule-strong:  #8A8470;
+  --rule-on-sunk: #837D69;
+  --ink:          #1A1F1B;
+  --ink-2:        #4A504A;
+  --pencil:       #676357;
+  --accent:       #1F5C45;
   --on-accent:    #FAF7EF;
-  --bar:          #2F4A68;
+  --bar:          #2E6B52;
+  --on-bar:       #FAF7EF;
   --stamp:        #A3372A;
   --ochre:        #7A5200;
-  --scrim:        rgba(27, 34, 48, 0.4);
+  --scrim:        rgba(26, 31, 27, 0.4);
 
-  /* Passbook-navy bands (text on them is --on-band), and the marigold of a
-     highlighter pen, used only behind ink text to mark what matters. */
-  --navy:         #1E2F4F;
-  --navy-deep:    #16233C;
+  /* Passbook-cover green bands (text on them is --on-band), and the marigold
+     of a highlighter pen, used only behind ink text to mark what matters. */
+  --band:         #183A2D;
+  --band-deep:    #11291F;
   --on-band:      #F3EFE4;
-  --on-band-2:    #C4CBD8;
+  --on-band-2:    #C5D1C6;
   --marigold:     #F2C14E;
-  --on-marigold:  #1B2230;
+  --on-marigold:  #1A1F1B;
 
   --font-display: 'Fraunces', 'Source Serif 4', Georgia, serif;
   --font-sans:    'IBM Plex Sans', 'Noto Sans', system-ui, sans-serif;
@@ -49,7 +50,7 @@
   --r-card:    16px;   /* panels, cards, notices */
   --r-float:   16px;   /* dialog */
   --r-sheet:   20px;   /* phone bottom sheet, top corners */
-  --r-band:    28px;   /* navy bands, the dashboard summary */
+  --r-band:    28px;   /* green bands, the dashboard month card */
   --r-pill:    999px;  /* counts */
   --r-stamp:   4px;    /* category stamps */
 
@@ -68,25 +69,36 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper:        #14181F;
-    --paper-raised: #1B2029;
-    --paper-sunk:   #0F1217;
-    --rule:         #2C3340;
-    --rule-strong:  #666F80;
-    --rule-on-sunk: #666F80;
-    --ink:          #ECE6D6;
-    --ink-2:        #B9B3A4;
-    --pencil:       #9A9384;
-    --accent:       #7FBFA5;
-    --on-accent:    #14181F;
-    --bar:          #9DB5D3;
+    --paper:        #121512;
+    --paper-raised: #1A1E1A;
+    --paper-sunk:   #0D0F0D;
+    --rule:         #2A302A;
+    --rule-strong:  #667066;
+    --rule-on-sunk: #667066;
+    --ink:          #ECE7D8;
+    --ink-2:        #B7B3A5;
+    --pencil:       #9A9587;
+    --accent:       #86C3A6;
+    --on-accent:    #121512;
+    --bar:          #8FC4A8;
+    --on-bar:       #121512;
     --stamp:        #E48A76;
     --ochre:        #D9A441;
-    --scrim:        rgba(15, 18, 23, 0.6);
-    --navy:         #1A2A47;
-    --navy-deep:    #111B30;
+    --scrim:        rgba(13, 15, 13, 0.6);
+    --band:         #173327;
+    --band-deep:    #0F241B;
     --marigold:     #E0AE3C;
   }
+}
+
+/* A band re-points the paper and ink tokens inside itself, so every shared
+   class works on it unchanged. Bars on a band are marigold. */
+.band {
+  background: var(--band); color: var(--on-band);
+  --paper: var(--band); --paper-raised: var(--band-deep); --paper-sunk: var(--band-deep);
+  --ink: var(--on-band); --ink-2: var(--on-band-2); --pencil: var(--on-band-2);
+  --rule: rgba(243, 239, 228, 0.15); --rule-strong: rgba(243, 239, 228, 0.42);
+  --bar: var(--marigold); --on-bar: var(--on-marigold); --accent: var(--marigold);
 }
 
 @media (max-width: 640px) {
@@ -283,6 +295,23 @@ dialog.sheet::backdrop { background: var(--scrim); }
   dialog.sheet[open] { animation-name: sheet; }
   @keyframes sheet { from { transform: translateY(100%); } }
 }
+
+/* A panel on the page: raised paper, one rule, the card radius. */
+.card {
+  background: var(--paper-raised); border: 1px solid var(--rule); border-radius: var(--r-card);
+  padding: 22px 24px; min-width: 0;
+}
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.card-head h2 { font-size: var(--t-h3); }
+
+/* Who was paid, at a glance: the merchant's first letter. A square for a
+   shop, a circle for a person (merchant_is_person), so the shape carries it. */
+.monogram {
+  flex: none; display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 10px;
+  background: var(--paper-sunk); border: 1px solid var(--rule); color: var(--ink);
+  font: 650 16px / 1 var(--font-display); text-transform: uppercase;
+}
+.monogram-person { border-radius: 50%; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

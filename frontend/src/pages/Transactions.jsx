@@ -6,7 +6,7 @@ import ResultNotice from '../components/ResultNotice'
 import { ErrorNotice, SkeletonRows } from '../components/States'
 import { useAuth } from '../lib/auth'
 import { CATEGORIES, UNSURE } from '../lib/categories'
-import { formatDay, formatINR, formatMonth, monthRange, plural } from '../lib/format'
+import { formatINR, formatMonth, formatWeekday, monthRange, plural } from '../lib/format'
 import { supabase } from '../lib/supabase'
 import { useCorrection } from '../lib/useCorrection'
 import { must, useLoad } from '../lib/useLoad'
@@ -16,6 +16,18 @@ import styles from './Transactions.module.css'
 
 const PAGE_SIZE = 50
 const COLUMNS = 'id, merchant, merchant_key, merchant_is_person, amount, transaction_date, category'
+
+// Rows arrive newest first; consecutive rows on the same day share a group.
+function byDay(rows) {
+  const days = []
+  for (const r of rows) {
+    const date = r.transaction_date || ''
+    const last = days[days.length - 1]
+    if (last && last.date === date) { last.rows.push(r); last.total += Number(r.amount) }
+    else days.push({ date, rows: [r], total: Number(r.amount) })
+  }
+  return days
+}
 
 export default function Transactions() {
   usePageTitle('Transactions')
@@ -94,7 +106,7 @@ export default function Transactions() {
         <h1 className="display">Transactions</h1>
       </header>
 
-      <div className={styles.filters}>
+      <div className={`card ${styles.filters}`}>
         <div className="field">
           <label htmlFor="f-month">Month</label>
           <select id="f-month" className="input" value={month} onChange={e => setFilter('month', e.target.value)}>
@@ -132,32 +144,42 @@ export default function Transactions() {
           <table className={`ledger ${styles.table}`} aria-busy={list.status === 'loading'}>
             <thead>
               <tr>
-                <th scope="col" className="caption">Date</th>
+                <th scope="col" className="caption"><span className="visually-hidden">Kind</span></th>
                 <th scope="col" className="caption">Merchant</th>
                 <th scope="col" className="caption">Category</th>
                 <th scope="col" className="caption amount">Amount</th>
               </tr>
             </thead>
-            <tbody>
-              {rows.map(r => (
-                <tr key={r.id} className={traced.has(r.id) ? 'trace' : ''}>
-                  <td className={`num ${styles.date}`}>{r.transaction_date ? formatDay(r.transaction_date) : 'No date'}</td>
-                  <th scope="row" className={styles.merchant}>
-                    {r.merchant || 'Unknown merchant'}
-                    {r.merchant_is_person && <span className="small muted"> to a person</span>}
-                    {traced.has(r.id) && <span className="small pencil"> · updated just now</span>}
-                  </th>
-                  <td className={styles.category}>
-                    <CategoryChip
-                      category={r.category}
-                      label={`Category for ${r.merchant || 'this payment'}: ${r.category || 'Unsure'}. Change`}
-                      onClick={() => setPicking(r)}
-                    />
-                  </td>
-                  <td className={`amount num ${styles.amount}`}>{formatINR(r.amount, { paise: true })}</td>
+            {byDay(rows).map(day => (
+              <tbody key={day.date}>
+                <tr className={styles.dayRow}>
+                  <th scope="rowgroup" colSpan={3}>{day.date ? formatWeekday(day.date) : 'No date'}</th>
+                  <td className="amount num">{formatINR(day.total, { paise: true })}</td>
                 </tr>
-              ))}
-            </tbody>
+                {day.rows.map(r => (
+                  <tr key={r.id} className={traced.has(r.id) ? 'trace' : ''}>
+                    <td className={styles.mono}>
+                      <span className={`monogram ${r.merchant_is_person ? 'monogram-person' : ''}`} aria-hidden="true">
+                        {(r.merchant || '?').trim().charAt(0)}
+                      </span>
+                    </td>
+                    <th scope="row" className={styles.merchant}>
+                      {r.merchant || 'Unknown merchant'}
+                      {r.merchant_is_person && <span className="small muted"> to a person</span>}
+                      {traced.has(r.id) && <span className="small pencil"> · updated just now</span>}
+                    </th>
+                    <td className={styles.category}>
+                      <CategoryChip
+                        category={r.category}
+                        label={`Category for ${r.merchant || 'this payment'}: ${r.category || 'Unsure'}. Change`}
+                        onClick={() => setPicking(r)}
+                      />
+                    </td>
+                    <td className={`amount num ${styles.amount}`}>{formatINR(r.amount, { paise: true })}</td>
+                  </tr>
+                ))}
+              </tbody>
+            ))}
           </table>
           {rows.length < total && (
             <button type="button" className="btn" onClick={() => setLimit(l => l + PAGE_SIZE)} disabled={list.status === 'loading'}>

@@ -1,10 +1,24 @@
-.page { display: grid; gap: 8px; align-content: start; max-width: 760px; }
-.section { display: grid; gap: 12px; padding: 24px; margin-top: 12px; border-radius: var(--r-card); background: var(--paper-raised); border: 1px solid var(--rule); }
+/* Account: one card, sections as rows with their label in a left column
+   (stacked on phones). Deleting sits last, under a stronger rule. */
+.page { display: grid; gap: 20px; align-content: start; max-width: 860px; }
+.sheet { background: var(--paper-raised); border: 1px solid var(--rule); border-radius: var(--r-card); }
+.section {
+  display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 12px 32px; align-items: start;
+  padding: 24px 28px; border-top: 1px solid var(--rule);
+}
+.section:first-child { border-top: 0; }
+.section > h2 { padding-top: 12px; font-family: var(--font-sans); line-height: 1.4; }
+.body { display: grid; gap: 12px; min-width: 0; }
+.body > :global(.btn) { justify-self: start; }
+.danger { border-top: 2px solid var(--stamp); }
+.danger > h2 { color: var(--stamp); }
 .row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 24px; }
 .stack { display: grid; gap: 12px; }
 .attention { color: var(--ochre); font-weight: 600; }
 .confirm { display: grid; gap: 16px; max-width: 420px; }
 
 @media (max-width: 640px) {
+  .section { grid-template-columns: minmax(0, 1fr); padding: 20px 16px; }
+  .section > h2 { padding-top: 0; }
   .row :global(.btn) { width: 100%; }
 }

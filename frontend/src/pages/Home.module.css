@@ -1,5 +1,5 @@
 /* Home: an asymmetric hero (text left, the passbook page right), a strip of
-   facts, zig-zag steps, a navy month band, a receipt, a read / never-read
+   facts, zig-zag steps, the dashboard's month card on real data, a receipt, a read / never-read
    table, an accordion, and a closing line. Everything left-aligned. */
 
 .hero {
@@ -17,6 +17,13 @@
 .ctas a:not(:global(.btn)) { display: inline-flex; align-items: center; min-height: var(--target); }
 .ctas :global(.btn) { min-height: 52px; padding: 0 24px; }
 .heroArt { min-width: 0; }
+
+/* Four real figures under the hero, largest first in reading order. */
+.figures { display: grid; grid-template-columns: repeat(4, auto); justify-content: start; gap: 0; margin-top: 10px; border-top: 1px solid var(--rule); }
+.figures div { display: flex; flex-direction: column-reverse; gap: 2px; padding: 14px 22px 0 0; max-width: 200px; }
+.figures div + div { padding-left: 22px; border-left: 1px solid var(--rule); }
+.figures dd { font-family: var(--font-display); font-weight: 650; font-size: 32px; line-height: 1; letter-spacing: -0.02em; }
+.figures dt { font-size: var(--t-small); color: var(--ink-2); line-height: 1.35; }
 
 .facts { background: var(--paper-sunk); border-block: 1px solid var(--rule); }
 .facts ul { list-style: none; display: grid; grid-template-columns: repeat(4, 1fr); }
@@ -58,18 +65,7 @@
 .correction { display: grid; gap: 10px; min-width: 0; }
 .correction :global(.ledger) th, .correction :global(.ledger) td { padding: 8px 4px; font-size: var(--t-small); }
 
-.band {
-  margin-top: 104px; padding: 80px 0; background: var(--navy); color: var(--on-band);
-  --paper: var(--navy); --paper-raised: var(--navy-deep); --paper-sunk: var(--navy-deep);
-  --ink: var(--on-band); --ink-2: var(--on-band-2); --pencil: var(--on-band-2);
-  --rule: rgba(243, 239, 228, 0.16); --rule-strong: rgba(243, 239, 228, 0.45);
-  --bar: var(--marigold); --accent: var(--marigold);
-}
-.bandInner { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 64px; align-items: center; }
-.bandText { display: grid; gap: 14px; }
-.bandText h2 { font-size: clamp(36px, 4.6vw, 58px); }
-.monthTotal { font-size: clamp(56px, 7.4vw, 104px); color: var(--marigold); }
-.bandNote { color: var(--on-band-2); }
+.showcase { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 
 .grow :global(.bar) { transform-origin: left; transform: scaleX(0); transition: transform 900ms var(--ease-settle); }
 .grow tr:nth-child(2) :global(.bar) { transition-delay: 60ms; }
@@ -127,7 +123,7 @@
 .closingAction :global(.btn) { min-height: 52px; padding: 0 24px; }
 
 @media (max-width: 900px) {
-  .hero, .split, .bandInner, .closing { grid-template-columns: minmax(0, 1fr); gap: 40px; }
+  .hero, .split, .showcase, .closing { grid-template-columns: minmax(0, 1fr); gap: 40px; }
   .hero { padding-top: 40px; }
   .facts ul { grid-template-columns: 1fr 1fr; }
   .facts li { padding: 18px 12px; border-left: 0; border-top: 1px solid var(--rule-on-sunk); }
@@ -136,6 +132,7 @@
   .step:nth-child(even) .stepArt, .step:nth-child(even) .stepText { grid-column: auto; grid-row: auto; }
   .stepNumber { font-size: 64px; }
   .section { padding-top: 72px; }
-  .band { padding: 56px 0; }
+  .figures { grid-template-columns: 1fr 1fr; }
+  .figures div, .figures div + div { padding: 12px 12px 12px 0; border-left: 0; border-bottom: 1px solid var(--rule); }
   .ctas :global(.btn) { width: 100%; }
 }

@@ -58,12 +58,18 @@ function SignedOutOnly({ children }) {
   return children
 }
 
-// Home is open to everyone. Only the backend's /?gmail=<result> redirect
-// after connecting Gmail is sent on to the dashboard, with its query string.
+// Home is open to signed-in visitors who navigate to it from inside the site.
+// A signed-in visitor who *arrives* at / (a fresh page load: Supabase's
+// fallback redirect after Google sign-in or an email confirmation link, or a
+// typed URL) goes to the dashboard. The backend's /?gmail=<result> redirect
+// after connecting Gmail keeps its query string.
 function GmailReturn({ children }) {
-  const { user } = useAuth()
-  const { search } = useLocation()
-  if (user && new URLSearchParams(search).has('gmail')) return <Navigate to={`/app${search}`} replace />
+  const { user, ready } = useAuth()
+  const { search, key } = useLocation()
+  const arrived = key === 'default'
+  if (arrived && !ready) return <SessionCheck />
+  const gmail = new URLSearchParams(search).has('gmail')
+  if (user && (arrived || gmail)) return <Navigate to={gmail ? `/app${search}` : '/app'} replace />
   return children
 }
 

@@ -32,3 +32,13 @@ export function monthRange(month) {
 }
 
 export const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+
+// Short figure for tight spaces: ₹940, ₹12K, ₹1.2L (Indian compact notation).
+export const formatINRShort = (n) =>
+  '₹' + Number(n).toLocaleString('en-IN', { notation: 'compact', maximumFractionDigits: 1 })
+
+// Today's calendar day in the browser's zone, 'YYYY-MM-DD'.
+export const todayISO = () => new Date().toLocaleDateString('en-CA')
+
+export const formatWeekday = (d) =>
+  asDay(d).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })

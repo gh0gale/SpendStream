@@ -1,18 +1,27 @@
+/* Needs review: how far this visit has got, then one card row per merchant,
+   largest total first, each with its monogram and one action. */
 .page { display: grid; gap: 16px; align-content: start; }
 .head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .head h1:focus { outline: none; }
 
+.progress { display: grid; gap: 10px; padding: 16px 20px; }
+.meter { height: 8px; border-radius: var(--r-pill); background: var(--paper-sunk); overflow: hidden; }
+.meter span { display: block; height: 100%; background: var(--bar); border-radius: var(--r-pill); transition: width var(--dur-med) var(--ease-settle); }
+
 .groups { list-style: none; background: var(--paper-raised); border: 1px solid var(--rule); border-radius: var(--r-card); padding: 0 20px; }
 .group:last-child { border-bottom: 0; }
 .group {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px 24px;
-  padding: 16px 0; border-bottom: 1px solid var(--rule);
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 12px 18px;
+  padding: 18px 0; border-bottom: 1px solid var(--rule); max-width: none;
 }
-.summary { display: grid; gap: 4px; min-width: 0; }
-.merchant { font-weight: 600; overflow-wrap: anywhere; }
+.summary { display: grid; gap: 2px; min-width: 0; }
+.merchant { font-family: var(--font-display); font-weight: 650; font-size: 19px; overflow-wrap: anywhere; }
+.total { color: var(--ink); font-weight: 700; }
 .dates summary { cursor: pointer; color: var(--accent); min-height: var(--target); display: flex; align-items: center; width: fit-content; }
 
 @media (max-width: 640px) {
-  .group { grid-template-columns: 1fr; }
-  .group > :global(.btn) { width: 100%; }
+  .group { grid-template-columns: auto minmax(0, 1fr); }
+  .group > :global(.btn) { grid-column: 1 / -1; width: 100%; }
 }
+.clear { display: grid; gap: 8px; justify-items: start; padding: 28px; }
+.clear h2 { font-size: var(--t-h3); }

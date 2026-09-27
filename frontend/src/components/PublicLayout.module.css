@@ -1,4 +1,4 @@
-/* A plain top bar on a rule, like the head of a passbook page, and a navy
+/* A plain top bar on a rule, like the head of a passbook page, and a green
    footer in columns. */
 .header { position: sticky; top: 0; z-index: 20; background: var(--paper); border-bottom: 1px solid var(--rule); }
 .bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 68px; }
@@ -27,7 +27,7 @@
 
 .main { min-height: 60vh; }
 
-.footer { margin-top: 112px; padding: 56px 0 64px; background: var(--navy); color: var(--on-band); }
+.footer { margin-top: 112px; padding: 56px 0 64px; background: var(--band); color: var(--on-band); }
 .footerGrid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 32px; }
 .footerGrid :global(.caption) { color: var(--on-band-2); margin-bottom: 8px; }
 .footerGrid nav { display: grid; align-content: start; }

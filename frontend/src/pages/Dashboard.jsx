@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import CategoryBreakdown from '../components/CategoryBreakdown'
+import MonthCard from '../components/MonthCard'
 import { ErrorNotice, SkeletonBlock, SkeletonRows } from '../components/States'
 import SyncLine from '../components/SyncLine'
 import { useAuth } from '../lib/auth'
-import { formatINR, formatMonth, formatMonthShort, plural } from '../lib/format'
+import {
+  formatDay, formatINR, formatINRShort, formatMonth, formatMonthShort, monthRange, plural, todayISO,
+} from '../lib/format'
 import { notifyReviewChanged } from '../lib/reviewQueue'
+import { supabase } from '../lib/supabase'
 import { useGmailSync } from '../lib/useGmailSync'
+import { must, useLoad } from '../lib/useLoad'
 import { usePageTitle } from '../lib/usePageTitle'
 import { monthTotal, useSpending } from '../lib/useSpending'
 import styles from './Dashboard.module.css'
@@ -83,10 +88,11 @@ export default function Dashboard() {
           <Spending
             spending={spending}
             current={current}
+            previous={months[index + 1]}
             index={index}
-            count={months.length}
             onMonth={setMonthIndex}
             months={months}
+            userId={user.id}
           />
         </>
       )}
@@ -117,25 +123,29 @@ function GmailNotice({ gmail, onRetry }) {
   return null
 }
 
-function Spending({ spending, current, index, count, onMonth, months }) {
+function Spending({ spending, current, previous, index, onMonth, months, userId }) {
+  const [today] = useState(todayISO)
   if (spending.status === 'error') {
     return <ErrorNotice title="Couldn't load your payments." detail={spending.detail} onRetry={spending.reload} />
   }
   if (spending.status === 'loading' && !current) {
     return (
-      <section className={styles.spending} aria-busy="true">
-        <div className={styles.summary}>
-          <SkeletonBlock height={16} width={140} />
-          <SkeletonBlock height={72} width={240} />
-          <SkeletonBlock height={16} width={200} />
+      <div className={styles.grid} aria-busy="true">
+        <div className={`band ${styles.skeletonCard}`}>
+          <span className="visually-hidden">Loading</span>
+          <SkeletonBlock height={22} width={180} />
+          <SkeletonBlock height={80} width={280} />
+          <SkeletonBlock height={44} />
         </div>
-        <div className={styles.table}><SkeletonRows rows={9} height={22} /></div>
-      </section>
+        <div className="card"><SkeletonRows rows={8} height={22} /></div>
+        <div className="card"><SkeletonRows rows={5} height={30} /></div>
+      </div>
     )
   }
   if (!current) {
     return (
-      <section className={styles.spending}>
+      <section className={`card ${styles.empty}`}>
+        <h2>No payments yet</h2>
         <p className="muted">
           No bank alerts found this month. SpendStream currently reads HDFC alerts reliably.
           Check this is the Gmail that receives them. <Link to="/how-it-works">How it works</Link>
@@ -144,46 +154,33 @@ function Spending({ spending, current, index, count, onMonth, months }) {
     )
   }
 
-  const older = months[index + 1]
-  const newer = months[index - 1]
   const month = current.month.slice(0, 7)
   const reviewCount = current.unsure.count
 
   return (
-    <section className={styles.spending} aria-labelledby="month-title">
-      <div className={styles.summary}>
-        <div className={styles.monthBar}>
-          <button type="button" className={styles.step} disabled={!older} onClick={() => onMonth(index + 1)}
-            aria-label={older ? `Previous month, ${formatMonth(older.month)}` : 'No earlier month'}>
-            {older ? formatMonthShort(older.month) : 'Earlier'}
-          </button>
-          <h2 id="month-title" className={styles.monthName}>{formatMonth(current.month)}</h2>
-          <button type="button" className={styles.step} disabled={!newer} onClick={() => onMonth(index - 1)}
-            aria-label={newer ? `Next month, ${formatMonth(newer.month)}` : 'No later month'}>
-            {newer ? formatMonthShort(newer.month) : 'Later'}
-          </button>
-        </div>
-        <p className="visually-hidden" aria-live="polite">{formatMonth(current.month)}, month {count - index} of {count}</p>
+    <div className={styles.grid}>
+      <MonthCard
+        month={current}
+        previous={previous}
+        today={today}
+        nav={{
+          older: months[index + 1],
+          newer: months[index - 1],
+          onOlder: () => onMonth(index + 1),
+          onNewer: () => onMonth(index - 1),
+        }}
+      >
+        {reviewCount > 0 && (
+          <Link to="/app/review" className={styles.reviewLink}>Review {plural(reviewCount, 'payment')}</Link>
+        )}
+        <Link to={`/app/transactions?month=${month}`} className="link-arrow">All payments this month</Link>
+      </MonthCard>
+      <p className="visually-hidden" aria-live="polite">
+        {formatMonth(current.month)}, month {months.length - index} of {months.length}
+      </p>
 
-        <div>
-          <p className={`num ${styles.total}`}>{formatINR(monthTotal(current))}</p>
-          <p className={styles.totalNote}>
-            spent across {plural(current.rows.reduce((s, r) => s + r.count, 0) + current.unsure.count, 'payment')}
-            {current.unsure.total > 0 && <>, including {formatINR(current.unsure.total)} not yet categorised</>}
-          </p>
-        </div>
-
-        <div className={styles.summaryLinks}>
-          {reviewCount > 0 && (
-            <Link to="/app/review" className={styles.reviewLink}>
-              Review {plural(reviewCount, 'payment')}
-            </Link>
-          )}
-          <Link to={`/app/transactions?month=${month}`} className="link-arrow">All payments this month</Link>
-        </div>
-      </div>
-
-      <div className={styles.table}>
+      <section className={`card ${styles.categories}`} aria-labelledby="cat-h">
+        <div className="card-head"><h2 id="cat-h">By category</h2></div>
         <CategoryBreakdown
           rows={current.rows}
           unsure={current.unsure}
@@ -191,7 +188,96 @@ function Spending({ spending, current, index, count, onMonth, months }) {
           linkFor={(cat) => `/app/transactions?month=${month}&category=${encodeURIComponent(cat)}`}
           unsureLink="/app/review"
         />
+      </section>
+
+      <div className={styles.side}>
+        <MonthTrend months={months} index={index} onMonth={onMonth} />
+        <LargestPayments userId={userId} month={month} />
       </div>
+    </div>
+  )
+}
+
+const TREND_MONTHS = 6
+
+// Month totals as columns, oldest on the left. Pressing a column selects that
+// month for the whole page; the selected month is always in the window.
+function MonthTrend({ months, index, onMonth }) {
+  const start = Math.min(Math.max(index - 2, 0), Math.max(months.length - TREND_MONTHS, 0))
+  const shown = months.slice(start, start + TREND_MONTHS).map((m, i) => ({ m, i: start + i })).reverse()
+  const max = Math.max(...shown.map(({ m }) => monthTotal(m)), 1)
+
+  return (
+    <section className="card" aria-labelledby="trend-h">
+      <div className="card-head">
+        <h2 id="trend-h">Month by month</h2>
+        <p className="small muted">{plural(months.length, 'month')} of alerts</p>
+      </div>
+      <div className={styles.trend}>
+        {shown.map(({ m, i }) => (
+          <button
+            key={m.month}
+            type="button"
+            className={styles.trendCol}
+            aria-pressed={i === index}
+            aria-label={`${formatMonth(m.month)}: ${formatINR(monthTotal(m))}`}
+            onClick={() => onMonth(i)}
+          >
+            <span className={`num ${styles.trendFig}`}>{formatINRShort(monthTotal(m))}</span>
+            <span className={styles.trendTrack}>
+              <span className={styles.trendBar} style={{ height: `${(monthTotal(m) / max) * 100}%` }} />
+            </span>
+            <span className={styles.trendName}>{formatMonthShort(m.month)}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+const LARGEST_COUNT = 5
+
+function LargestPayments({ userId, month }) {
+  const fetcher = useCallback(() => {
+    const [start, end] = monthRange(month)
+    return must(supabase.from('silver_transactions')
+      .select('id, merchant, merchant_is_person, amount, transaction_date, category')
+      .eq('user_id', userId).gte('transaction_date', start).lt('transaction_date', end)
+      .order('amount', { ascending: false }).order('id')
+      .range(0, LARGEST_COUNT - 1))
+  }, [userId, month])
+  const list = useLoad(fetcher)
+
+  return (
+    <section className="card" aria-labelledby="largest-h">
+      <div className="card-head">
+        <h2 id="largest-h">Largest payments</h2>
+        <Link to={`/app/transactions?month=${month}`} className={styles.seeAll}>See all</Link>
+      </div>
+      {list.status === 'error' ? (
+        <ErrorNotice title="Couldn't load the largest payments." detail={list.detail} onRetry={list.reload} />
+      ) : !list.data ? (
+        <SkeletonRows rows={LARGEST_COUNT} height={36} />
+      ) : list.data.length === 0 ? (
+        <p className="muted small">No payments in this month.</p>
+      ) : (
+        <ol className={styles.largest} aria-busy={list.status === 'loading'}>
+          {list.data.map(r => (
+            <li key={r.id}>
+              <span className={`monogram ${r.merchant_is_person ? 'monogram-person' : ''}`} aria-hidden="true">
+                {(r.merchant || '?').trim().charAt(0)}
+              </span>
+              <span className={styles.who}>
+                <strong>{r.merchant || 'Unknown merchant'}</strong>
+                <span className="small muted">
+                  {r.transaction_date ? formatDay(r.transaction_date) : 'No date'} · {r.category || 'Unsure'}
+                </span>
+              </span>
+              <span className={`num ${styles.largestAmount}`}>{formatINR(r.amount)}</span>
+            </li>
+          ))}
+        </ol>
+      )}
     </section>
   )
 }

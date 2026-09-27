@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import CategoryBreakdown from '../components/CategoryBreakdown'
 import CategoryChip from '../components/CategoryChip'
 import CategoryPicker from '../components/CategoryPicker'
+import MonthCard from '../components/MonthCard'
 import ResultNotice from '../components/ResultNotice'
 import StampSorter from '../components/StampSorter'
 import { useAuth } from '../lib/auth'
@@ -17,6 +18,15 @@ const FACTS = [
   ['Bank alerts only', 'The Gmail search matches debit alerts from six banks. Nothing else is opened.'],
   ['No AI company', 'Payments are sorted on SpendStream’s own server.'],
   ['Gone in one step', 'Delete your account and every row goes, and Google access is revoked.'],
+]
+
+// From the golden-set compare run (contract in .claude/rules/general.md) and
+// the category and bank lists.
+const FIGURES = [
+  ['87.8%', 'filed right, on 312 payments it had never seen'],
+  ['13', 'categories'],
+  ['6', 'banks searched'],
+  ['₹0', 'to use'],
 ]
 
 const FAQ = [
@@ -53,6 +63,9 @@ export default function Home() {
             {cta}
             <Link to="/your-data" className="link-arrow">What we read from your Gmail</Link>
           </div>
+          <dl className={styles.figures}>
+            {FIGURES.map(([value, label]) => <div key={label}><dt>{label}</dt><dd className="num">{value}</dd></div>)}
+          </dl>
         </div>
         {demo?.alert && <div className={styles.heroArt}><StampSorter alert={demo.alert} earlier={earlier} /></div>}
       </section>
@@ -84,7 +97,7 @@ export default function Home() {
         </ol>
       </section>
 
-      {demo && <MonthBand />}
+      {demo && <MonthShowcase />}
 
       <section className={`page ${styles.section} ${styles.split}`} aria-labelledby="unsure-h">
         <div className={styles.sectionHead}>
@@ -141,19 +154,27 @@ export default function Home() {
   )
 }
 
-function MonthBand() {
-  const [ref, shown] = useInView({ threshold: 0.3 })
-  const total = demo.breakdown.reduce((s, r) => s + r.total, 0) + demo.unsure.total
+// The dashboard's own month card and category table, on the developer's real
+// month from demo-export.json. The bars grow once when the section is reached.
+function MonthShowcase() {
+  const [ref, shown] = useInView({ threshold: 0.25 })
+  const month = { month: demo.month, rows: demo.breakdown, unsure: demo.unsure }
   return (
-    <section ref={ref} className={`${styles.band} ${styles.grow} ${shown ? styles.shownBars : ''}`} aria-labelledby="month-h">
-      <div className={`page ${styles.bandInner}`}>
-        <div className={styles.bandText}>
-          <p className="caption">{formatMonth(demo.month)}, from the developer&apos;s own account</p>
-          <h2 id="month-h" className="display">Where the money went.</h2>
-          <p className={`display num ${styles.monthTotal}`}>{formatINR(total)}</p>
-          <p className={styles.bandNote}>Nothing was typed. Every row came from a bank alert.</p>
+    <section className={`page ${styles.section}`} aria-labelledby="showcase-h">
+      <div className={styles.sectionHead}>
+        <p className="caption">The dashboard</p>
+        <h2 id="showcase-h" className="display">Your month on <span className="mark">one screen</span>.</h2>
+        <p className="muted">
+          This is the developer&apos;s own {formatMonth(demo.month)}, drawn by the same components as
+          your dashboard. Nothing was typed: every row came from a bank alert.
+        </p>
+      </div>
+      <div ref={ref} className={`${styles.showcase} ${styles.grow} ${shown ? styles.shownBars : ''}`}>
+        <MonthCard month={month} caption="From the developer’s account" />
+        <div className="card">
+          <div className="card-head"><h3>By category</h3></div>
+          <CategoryBreakdown rows={demo.breakdown} unsure={demo.unsure} compact />
         </div>
-        <CategoryBreakdown rows={demo.breakdown} unsure={demo.unsure} />
       </div>
     </section>
   )
