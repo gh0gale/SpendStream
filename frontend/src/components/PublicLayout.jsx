@@ -23,7 +23,7 @@ export default function PublicLayout() {
       <a className="skip-link" href="#main">Skip to content</a>
       <header className={styles.header}>
         <div className={`page ${styles.bar}`}>
-          <Link to="/" className={styles.wordmark}><span className={styles.rupee} aria-hidden="true">₹</span>SpendStream</Link>
+          <Link to="/" className={styles.wordmark}><span className="brand-stamp" aria-hidden="true">₹</span>SpendStream</Link>
           <SegmentedNav items={NAV} label="Main" className={styles.seg} />
           <div className={styles.actions}>
             {user ? (
@@ -75,7 +75,7 @@ export function SiteFooter() {
     <footer className={styles.footer}>
       <div className={`page ${styles.footerGrid}`}>
         <div className={styles.footerBrand}>
-          <p className={styles.wordmark}><span className={styles.rupee} aria-hidden="true">₹</span>SpendStream</p>
+          <p className={styles.wordmark}><span className="brand-stamp" aria-hidden="true">₹</span>SpendStream</p>
           <p className="small">Your UPI payments, sorted from the alerts your bank already sends. Free.</p>
         </div>
         <nav aria-label="Product">

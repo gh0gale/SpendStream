@@ -30,7 +30,7 @@ export default function AppLayout() {
       <header className={styles.top}>
         <div className={`page ${styles.bar}`}>
           <Link to="/" className={styles.wordmark} aria-label="SpendStream home page">
-            <span className={styles.rupee} aria-hidden="true">₹</span>SpendStream
+            <span className="brand-stamp" aria-hidden="true">₹</span>SpendStream
           </Link>
           <SegmentedNav items={pages} label="App" className={styles.seg} />
           <AccountMenu user={user} />

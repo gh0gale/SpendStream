@@ -64,7 +64,7 @@ export default function Login() {
   return (
     <div className={styles.wrap}>
       <aside className={`band ${styles.brand}`}>
-        <Link to="/" className={styles.wordmark}><span className={styles.rupee} aria-hidden="true">₹</span>SpendStream</Link>
+        <Link to="/" className={styles.wordmark}><span className="brand-stamp" aria-hidden="true">₹</span>SpendStream</Link>
         <p className={`display ${styles.pitch}`}>Every UPI payment, sorted from the alerts your bank already sends.</p>
         <ul className={styles.points}>
           <li>Reads only bank debit alerts, with read-only Gmail access.</li>

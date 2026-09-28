@@ -1,19 +1,14 @@
-.seg {
-  position: relative; display: inline-flex; align-items: center; gap: 2px; padding: 4px;
-  border-radius: var(--r-pill); background: var(--paper-sunk); border: 1px solid var(--rule);
-}
-.pill {
-  position: absolute; left: 0; top: 4px; bottom: 4px; border-radius: var(--r-pill); background: var(--ink);
-  transition: transform 320ms var(--ease-settle), width 320ms var(--ease-settle);
-}
+/* Stretches to the header's full height so the current page's ink rule sits
+   on the header's bottom rule, like a tab on a ledger page. */
+.seg { align-self: stretch; display: flex; gap: 28px; margin-bottom: -1px; }
 .item {
-  position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 8px;
-  min-height: 40px; padding: 0 16px; border-radius: var(--r-pill);
+  display: inline-flex; align-items: center; gap: 8px; min-height: var(--target);
+  border-bottom: 2px solid transparent;
   color: var(--ink-2); font-weight: 600; font-size: var(--t-small); text-decoration: none; white-space: nowrap;
-  transition: color 200ms;
+  transition: color var(--dur-colour), border-color var(--dur-colour);
 }
-.item:hover { color: var(--ink); }
-.item[aria-current='page'] { color: var(--paper); }
+.item:hover { color: var(--ink); border-bottom-color: var(--rule-strong); }
+.item[aria-current='page'] { color: var(--ink); border-bottom-color: var(--ink); }
 .count {
   display: inline-block; min-width: 20px; padding: 1px 6px; border-radius: var(--r-pill);
   background: var(--marigold); color: var(--on-marigold); font-size: var(--t-caption); font-weight: 700; text-align: center;

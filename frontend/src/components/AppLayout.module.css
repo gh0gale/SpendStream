@@ -12,10 +12,6 @@
   color: var(--ink); text-decoration: none;
 }
 .wordmark:hover { color: var(--ink); }
-.rupee {
-  display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 9px;
-  background: var(--marigold); color: var(--on-marigold); font-family: var(--font-sans); font-size: 16px; font-weight: 700;
-}
 
 .count {
   display: inline-block; min-width: 20px; padding: 1px 6px; border-radius: var(--r-pill);
