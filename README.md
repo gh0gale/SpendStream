@@ -91,7 +91,8 @@ The trained model files are **not in this repository**: their vocabulary holds r
 | **Backend API** | FastAPI (Python 3.12), `requests` for Gmail and Google OAuth, Fernet-encrypted refresh tokens |
 | **Database** | Supabase (Postgres) with row-level security; schema in `supabase/migrations/` |
 | **ML** | scikit-learn 1.7.2 (pinned), NumPy, SciPy, joblib. No torch or sentence embeddings |
-| **Automation** | GitHub Actions: CI, scheduled sync (3 times a day), weekly retrain |
+| **Hosting** | Backend on Render (Docker, `render.yaml`), frontend on Cloudflare Pages |
+| **Automation** | GitHub Actions: CI, scheduled sync (3 times a day), weekly retrain, weekly encrypted database backup |
 
 ---
 
@@ -174,6 +175,8 @@ SpendStream/
 │   ├── model_store.py        # Model files in the private Supabase bucket
 │   ├── train_model.py        # Training
 │   ├── evaluate_model.py     # Golden-set scoring (the release gate)
+│   ├── build_golden_set.py   # Builds the golden set and the train/ship CSVs
+│   ├── export_demo.py        # Anonymised demo data for the public pages
 │   ├── weekly_retrain.py     # Automated gated retrain
 │   ├── retrain.sh            # Local gated retrain
 │   ├── cron_runner.py        # One-shot sync of all users
@@ -189,7 +192,8 @@ SpendStream/
 │   │                         # Dashboard, Transactions, Needs review, Account
 │   ├── components/
 │   └── lib/                  # Supabase client, API helper, data hooks
-├── .github/workflows/        # ci.yml, sync.yml, retrain.yml
+├── .github/workflows/        # ci.yml, sync.yml, retrain.yml, backup.yml
+├── render.yaml               # Render Blueprint for the backend
 └── compose.yaml
 ```
 
