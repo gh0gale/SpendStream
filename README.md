@@ -91,7 +91,7 @@ The trained model files are **not in this repository**: their vocabulary holds r
 | **Backend API** | FastAPI (Python 3.12), `requests` for Gmail and Google OAuth, Fernet-encrypted refresh tokens |
 | **Database** | Supabase (Postgres) with row-level security; schema in `supabase/migrations/` |
 | **ML** | scikit-learn 1.7.2 (pinned), NumPy, SciPy, joblib. No torch or sentence embeddings |
-| **Hosting** | Backend on Render (Docker, `render.yaml`), frontend on Cloudflare Pages |
+| **Hosting** | Backend on Render (Docker web service, `render.yaml`); frontend on Cloudflare Workers (static assets, see Deployment) |
 | **Automation** | GitHub Actions: CI, scheduled sync (3 times a day), weekly retrain, weekly encrypted database backup |
 
 ---
@@ -119,7 +119,7 @@ A version mismatch between training and serving once turned every prediction int
 
 ### Prerequisites
 - Docker (or Python 3.12)
-- Node.js 20+
+- Node.js 20.19+ (Vite 7; CI uses 24)
 - A Supabase project with the migrations in `supabase/migrations/` applied
 - A Google Cloud project with the Gmail API and an OAuth web client; redirect URI `http://localhost:8000/auth/callback`
 - A trained model in the Supabase bucket `models` (`python model_store.py push-model`), or `python train_model.py` for a templates-only model
@@ -160,6 +160,82 @@ cd frontend && npm run lint && npm run build
 
 ---
 
+## API
+
+The browser reads its own rows from Supabase directly; these are the backend routes (`backend/main.py`). Auth is a Supabase JWT in `Authorization: Bearer`.
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/ping` | none | Process is up (Render's health check) |
+| GET | `/health` | none, per-IP limited | One database read; 503 if it fails (uptime monitors, `sync.yml`) |
+| POST | `/auth/google/start` | JWT | Returns Google's consent URL; 5 attempts per 10 minutes |
+| GET | `/auth/callback` | one-time `state` | Stores tokens (refresh token Fernet-encrypted), redirects to `FRONTEND_URL/?gmail=<connected\|denied\|expired\|error>` |
+| GET | `/fetch-gmail` | JWT | Starts a manual sync (202 with a `job_id`); 409 not connected or reconnect needed, 429 within 10 minutes of the last one |
+| POST | `/cron/fetch-all` | `X-Cron-Secret` | Syncs every connected user in the background |
+| DELETE | `/account` | JWT | Revokes Gmail access, deletes the user's rows and the auth user |
+| GET | `/model-info` | JWT | Metadata of the loaded model |
+
+CORS allows only `FRONTEND_URL` (GET, POST, DELETE; no cookies).
+
+---
+
+## Environment Variables
+
+**Backend** (`backend/.env`, see `backend/.env.example`; on Render they are set in the service's Environment tab). The API refuses to start without the first seven.
+
+| Variable | Purpose |
+|----------|---------|
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Database; the anon key only validates user JWTs |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Gmail OAuth client |
+| `CRON_SECRET` | Secret for `POST /cron/fetch-all` |
+| `TOKEN_ENCRYPTION_KEY` | Fernet key for stored refresh tokens; changing it forces every user to reconnect Gmail |
+| `FRONTEND_URL` | Only CORS origin and the post-OAuth redirect (default `http://localhost:5173`) |
+| `BACKEND_URL` | Base of the OAuth redirect URI `${BACKEND_URL}/auth/callback` (default `http://localhost:8000`) |
+| `CRON_MAX_WORKERS` | Concurrent users per scheduled sync (default 5) |
+| `DEPLOY_HOOK_URL` | Used only by the weekly retrain job (a GitHub secret) to restart the backend |
+
+**Frontend** (`frontend/.env`, read by Vite at build time): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL` (must equal the backend's `BACKEND_URL`).
+
+**GitHub Actions secrets:** `BACKEND_URL` and `CRON_SECRET` (`sync.yml`); `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DEPLOY_HOOK_URL` (`retrain.yml`); `SUPABASE_DB_URL`, `BACKUP_PASSPHRASE` (`backup.yml`).
+
+---
+
+## Deployment
+
+```
+Browser
+  ├─► Cloudflare Workers (static React build, index.html for every path, security headers from public/_headers)
+  │       https://spendstream.yashghogale8850.workers.dev
+  ├─► Supabase (auth, row-level-security reads, correct_category())
+  └─► Render web service (FastAPI, Docker)  https://spendstream-backend.onrender.com
+          ├─► Supabase (service role), Supabase Storage bucket `models`
+          └─► Google OAuth and Gmail API
+GitHub Actions ─► POST /cron/fetch-all (3 times a day), weekly retrain, weekly backup
+```
+
+**Backend on Render.** `render.yaml` defines one Docker web service (`spendstream-backend`, free plan, Singapore, `backend/Dockerfile` with `backend/` as the build context, health check `/ping`, auto-deploy on commit). The image starts `uvicorn main:app --host 0.0.0.0 --port 8000`; the Dockerfile fixes the port, `render.yaml` sets no `PORT`. Every secret is declared `sync: false` and typed into the Render dashboard. On startup the API downloads the live model from the private `models` bucket. The free plan sleeps when idle; `sync.yml` wakes it through `/health` before each scheduled sync.
+
+**Frontend on Cloudflare Workers.** The site is the Vite build (`npm run build`, output `frontend/dist/`) served as Workers static assets on a `*.workers.dev` URL. `frontend/public/_headers` (copied into `dist/`) sets the Content-Security-Policy (`connect-src` lists the Supabase and Render origins), `X-Frame-Options`, `nosniff`, `Referrer-Policy` and `Permissions-Policy`. The repository holds **no** `wrangler.toml`/`wrangler.jsonc`, so the build and deploy commands, the `VITE_*` build variables and the single-page-app fallback are configured in the Cloudflare dashboard and cannot be read from the repo. Observed on the live site (2026-09-29): the CSP header is served with the Render origin, and `/app/transactions` returns `index.html` with status 200.
+
+**Google and Supabase settings outside the repo.** `${BACKEND_URL}/auth/callback` must be an authorised redirect URI on the Google OAuth client, and the Supabase Site URL and redirect list must include the frontend URL. Dev and production share one Supabase project and one Google client (decision 2026-09-28).
+
+---
+
+## Current Status and Limitations
+
+**Implemented and used:** Gmail sync (manual and scheduled), the raw to bronze to silver pipeline, rule / directory / model categorisation, per-user correction rules, monthly dashboard, transaction list, Needs review queue, account deletion, public and legal pages.
+
+**Not confirmed:** run results of the four GitHub Actions workflows (the repository is pushed, but run history and repository secrets could not be checked from here), the weekly retrain against a real project, and the weekly backup.
+
+**Limits:**
+- Only debit alerts are read; credits are skipped. Only HDFC alert formats have been checked against a real mailbox, although the Gmail query also names ICICI, SBI, Axis, Kotak and Yes Bank.
+- The Gmail scope is restricted and the Google app is unverified, so it is limited to 100 users and shows Google's unverified-app warning.
+- The model is 87.8% accurate on 312 payments from one person's history; payments below 50% confidence stay uncategorised.
+- Sign-up is open (email/password or Google). No end-to-end test suite exists; the offline tests fake the database and Google.
+- `/model-info` and `DELETE /account` have no rate limit.
+
+---
+
 ## Project Structure
 
 ```
@@ -192,6 +268,7 @@ SpendStream/
 │   │                         # Dashboard, Transactions, Needs review, Account
 │   ├── components/
 │   └── lib/                  # Supabase client, API helper, data hooks
+├── frontend/public/_headers  # CSP and other headers served by the Cloudflare frontend
 ├── .github/workflows/        # ci.yml, sync.yml, retrain.yml, backup.yml
 ├── render.yaml               # Render Blueprint for the backend
 └── compose.yaml
