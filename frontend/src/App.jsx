@@ -1,23 +1,29 @@
+import { lazy, Suspense } from 'react'
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router'
-import AppLayout from './components/AppLayout'
 import PublicLayout from './components/PublicLayout'
 import { useAuth } from './lib/auth'
-import Account from './pages/Account'
-import Connect from './pages/Connect'
-import Dashboard from './pages/Dashboard'
 import Home from './pages/Home'
-import HowItWorks from './pages/HowItWorks'
 import Login from './pages/Login'
-import Privacy from './pages/Privacy'
-import Review from './pages/Review'
 import { Deleted, NotFound } from './pages/SimplePages'
-import Terms from './pages/Terms'
-import Transactions from './pages/Transactions'
-import YourData from './pages/YourData'
+
+// The landing page and sign-in load first; the app, the Gmail connect steps and
+// the reading pages are separate chunks, fetched when the route is opened.
+const AppLayout = lazy(() => import('./components/AppLayout'))
+const Account = lazy(() => import('./pages/Account'))
+const Connect = lazy(() => import('./pages/Connect'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const HowItWorks = lazy(() => import('./pages/HowItWorks'))
+const Privacy = lazy(() => import('./pages/Privacy'))
+const Review = lazy(() => import('./pages/Review'))
+const Rules = lazy(() => import('./pages/Rules'))
+const Terms = lazy(() => import('./pages/Terms'))
+const Transactions = lazy(() => import('./pages/Transactions'))
+const YourData = lazy(() => import('./pages/YourData'))
 
 // Real URLs: the host must serve index.html for every path (SPA fallback).
 export default function App() {
   return (
+    <Suspense fallback={<PageLoading />}>
     <Routes>
       <Route element={<PublicLayout />}>
         <Route index element={<GmailReturn><Home /></GmailReturn>} />
@@ -35,10 +41,12 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="transactions" element={<Transactions />} />
           <Route path="review" element={<Review />} />
+          <Route path="rules" element={<Rules />} />
           <Route path="account" element={<Account />} />
         </Route>
       </Route>
     </Routes>
+    </Suspense>
   )
 }
 
@@ -71,6 +79,15 @@ function GmailReturn({ children }) {
   const gmail = new URLSearchParams(search).has('gmail')
   if (user && (arrived || gmail)) return <Navigate to={gmail ? `/app${search}` : '/app'} replace />
   return children
+}
+
+function PageLoading() {
+  return (
+    <div className="page" style={{ paddingTop: 80 }} aria-busy="true">
+      <span className="spinner" aria-hidden="true" />
+      <span className="visually-hidden">Loading</span>
+    </div>
+  )
 }
 
 function SessionCheck() {

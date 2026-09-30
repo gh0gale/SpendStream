@@ -12,7 +12,8 @@ const KEPT = [
   ['Each payment', 'The cleaned merchant name, the payee id used to recognise the merchant again, whether the payee is a person, and the category.'],
   ['Your corrections', 'Each category you chose, and the rule it created for that merchant.'],
   ['Your Gmail connection', 'Google\'s access token and refresh token (the refresh token is encrypted), when mail was last read, and whether Google needs you to reconnect.'],
-  ['Your syncs', 'When each sync ran, whether it worked, and how many payments it found.'],
+  ['Your syncs', 'When each sync ran, whether it worked, how many payments it found, and how many matching emails it read.'],
+  ['How you use the app', 'Which screens and actions you use, for example that you opened the dashboard or corrected a category, with counts such as how many months were shown. Never merchant names, amounts or email text. Deleted after 90 days.'],
   ['Your account', 'Your email address, and your password as a hash kept by Supabase Auth. SpendStream never sees your password.'],
 ]
 

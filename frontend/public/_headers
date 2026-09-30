@@ -1,17 +1,27 @@
-# Security headers for Cloudflare Pages (SEC-10, plan Phase 5). Vite copies
-# public/ into dist/, and Pages applies this file to every response. The dev
+# Security headers for Cloudflare Workers static assets (SEC-10, plan Phase 5).
+# Vite copies public/ into dist/, and the assets host applies this file to every response. The dev
 # server ignores it, so check it on the deployed site (plan Phase 9).
 #
 # connect-src must list the backend's real origin. It is not known until the
 # backend is deployed: replace https://backend-origin-not-set.invalid with it (.invalid is a reserved name that never resolves)
 # (it must equal VITE_API_URL), or the dashboard cannot reach the API.
-# style-src allows the Google Fonts stylesheet linked in index.html. Since the
-# 2026-09-27 rebuild there is no inline <style> element; 'unsafe-inline' stays
+# Fonts are self-hosted (public/fonts, src/fonts.css), so no Google origin is allowed.
+# Since the 2026-09-27 rebuild there is no inline <style> element; 'unsafe-inline' stays
 # until the deployed site is checked without it (React sets style props through
 # the CSSOM, which CSP does not block).
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://spendstream-backend.onrender.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://spendstream-backend.onrender.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY
   Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# Hashed build files never change under the same name; the page itself must be
+# re-checked so a new deploy is picked up. Fonts keep stable names: rename a
+# font file if it is ever replaced.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+/index.html
+  Cache-Control: no-cache

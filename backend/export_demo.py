@@ -126,12 +126,27 @@ def scrub_alert(text: str) -> str:
     return (flat[:end + 1] if end > 0 else flat).strip()
 
 
+def fill_alert_text(bronze: dict[str, dict], raw: list[dict]) -> dict[str, dict]:
+    """
+    Bronze rows written before 2026-10-01 carry a copy of the alert text; newer
+    ones do not (it stays on the raw row only). Fill a missing text from the raw
+    row, keeping any copy bronze already has. Returns new dicts.
+    """
+    by_raw_id = {r["id"]: r.get("raw_text") for r in raw}
+    return {bid: {**b, "raw_text": b.get("raw_text") or by_raw_id.get(b.get("raw_id"))}
+            for bid, b in bronze.items()}
+
+
 def bronze_rows(sb, ids: list[str]) -> dict[str, dict]:
     if not ids:
         return {}
-    data = (sb.table("bronze_transactions").select("id, receiver, raw_text")
+    data = (sb.table("bronze_transactions").select("id, raw_id, receiver, raw_text")
             .in_("id", ids).execute().data)
-    return {b["id"]: b for b in data}
+    bronze = {b["id"]: b for b in data}
+    raw_ids = [b["raw_id"] for b in data if b.get("raw_id") and not b.get("raw_text")]
+    raw = (sb.table("transactions").select("id, raw_text").in_("id", raw_ids).execute().data
+           if raw_ids else [])
+    return fill_alert_text(bronze, raw)
 
 
 def alert_example(sb, month_rows: list[dict]) -> dict | None:

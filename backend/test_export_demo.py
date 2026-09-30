@@ -5,7 +5,7 @@ No database, network or .env. Run from backend/: python test_export_demo.py
 
 import sys
 
-from export_demo import breakdown, display_name, person_names, pick_month, scrub_alert
+from export_demo import breakdown, display_name, fill_alert_text, person_names, pick_month, scrub_alert
 
 
 def row(**kw):
@@ -58,6 +58,17 @@ def test_pick_month_prefers_the_fullest_past_month():
     rows = [row(transaction_date="2020-01-05")] * 2 + [row(transaction_date="2020-02-05")]
     assert pick_month(rows, None) == "2020-01"
     assert pick_month(rows, "2020-02") == "2020-02"
+
+
+def test_alert_text_comes_from_the_raw_row_when_bronze_has_none():
+    bronze = {"b1": {"id": "b1", "raw_id": "r1", "receiver": "x", "raw_text": None},
+              "b2": {"id": "b2", "raw_id": "r2", "receiver": "y", "raw_text": "old copy"},
+              "b3": {"id": "b3", "raw_id": None, "receiver": "z", "raw_text": None}}
+    out = fill_alert_text(bronze, [{"id": "r1", "raw_text": "from raw"}, {"id": "r2", "raw_text": "other"}])
+    assert out["b1"]["raw_text"] == "from raw", out
+    assert out["b2"]["raw_text"] == "old copy", "an existing bronze copy is kept"
+    assert out["b3"]["raw_text"] is None, out
+    assert bronze["b1"]["raw_text"] is None, "the input is not mutated"
 
 
 if __name__ == "__main__":

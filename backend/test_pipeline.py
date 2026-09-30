@@ -20,7 +20,9 @@ Exit code is non-zero if any check fails.
 import base64
 import os
 import sys
-from datetime import datetime, timezone
+import threading
+import time
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -104,6 +106,7 @@ class FakeQuery:
 
     def eq(self, col, val):     return self._filter("eq", col, val)
     def lt(self, col, val):     return self._filter("lt", col, val)
+    def gte(self, col, val):    return self._filter("gte", col, val)
     def is_(self, col, val):    return self._filter("is", col, val)
     def in_(self, col, val):    return self._filter("in", col, list(val))
     def order(self, col, **kw): return self._filter("order", col)
@@ -235,6 +238,8 @@ def test_raw_to_bronze():
     select  = db.find("transactions", "select")[0]["filters"]
     check("3.5 raw→bronze processes every pending row", n == 4, n)
     check("3.4 one bronze write for the batch", len(upserts) == 1, len(upserts))
+    check("WP11 bronze does not copy the alert text; it stays only on the raw row",
+          bool(rows) and all(not r.get("raw_text") for r in rows), rows)
     check("3.1 identical payments in two emails both reach bronze",
           {"m1", "m2"} <= {r["message_id"] for r in rows}, rows)
     check("3.1 identical legacy rows in one batch collapse to one",
@@ -767,6 +772,256 @@ def test_stale_jobs():
           and any(f[0] == "lt" and f[1] == "created_at" for f in ups[0]["filters"]), ups)
 
 
+def test_sync_slots():
+    """At most MAX_CONCURRENT_SYNCS syncs run at once; a failed sync frees its slot."""
+    real_slots = tasks._SYNC_SLOTS
+    tasks._SYNC_SLOTS = threading.BoundedSemaphore(1)
+    lock, state = threading.Lock(), {"now": 0, "peak": 0, "fail": False}
+
+    def handler(method, url, params):
+        if url.endswith("/messages"):
+            with lock:
+                state["now"] += 1
+                state["peak"] = max(state["peak"], state["now"])
+            time.sleep(0.05)
+            with lock:
+                state["now"] -= 1
+            if state["fail"]:
+                return FakeResponse(500, {})
+            return FakeResponse(200, {"messages": []})
+        return FakeResponse(200, {})
+
+    db = FakeDB({
+        ("gmail_credentials", "select"): [{"access_token": "acc", "refresh_token_encrypted": token_crypto.encrypt("ref")}],
+        ("gmail_sync", "select"):        [{"last_fetched": "2026-09-15T08:00:00+00:00"}],
+    })
+    tasks.supabase_admin = db
+    tasks.requests = FakeHTTP(handler)
+    tasks.run_pipeline_task = lambda uid: None
+    try:
+        threads = [threading.Thread(target=tasks.fetch_gmail_for_user_task, args=(U, f"job-{i}")) for i in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        done = [c["payload"].get("status") for c in db.find("sync_jobs", "update")]
+        check("three syncs with one slot never overlap", state["peak"] == 1, state)
+        check("all three syncs still finish", done.count("succeeded") == 3, done)
+
+        state["fail"] = True
+        raises(lambda: tasks.fetch_gmail_for_user_task(U, "job-x"), Exception)
+        got = tasks._SYNC_SLOTS.acquire(blocking=False)
+        check("a failed sync releases its slot", got)
+        if got:
+            tasks._SYNC_SLOTS.release()
+    finally:
+        tasks._SYNC_SLOTS = real_slots
+
+
+def test_sync_counters():
+    """WP4: each sync records what it read; a database without the columns still syncs."""
+    def handler(method, url, params):
+        if url.endswith("/messages"):
+            return FakeResponse(200, {"messages": [{"id": "m1"}, {"id": "m2"}, {"id": "m3"}]})
+        msg = url.rsplit("/", 1)[1]
+        if msg == "m3":
+            return FakeResponse(200, {"id": "m3", "payload": {"mimeType": "text/plain",
+                                      "body": {"data": base64.urlsafe_b64encode(b"Your OTP is 123456").decode()}}})
+        return FakeResponse(200, alert_message(msg, ALERT))
+
+    rows = {
+        ("gmail_credentials", "select"): [{"access_token": "acc", "refresh_token_encrypted": token_crypto.encrypt("ref")}],
+        ("gmail_sync", "select"):        [{"last_fetched": "2026-09-15T08:00:00+00:00"}],
+        ("transactions", "upsert"):      [{"id": "r1"}, {"id": "r2"}],
+    }
+    db = FakeDB(dict(rows))
+    _sync(db, handler, "job-c1")
+    last = db.find("sync_jobs", "update")[-1]["payload"]
+    check("WP4 the job records messages listed, failed and parsed",
+          (last.get("messages_listed"), last.get("messages_failed"), last.get("alerts_parsed")) == (3, 0, 2), last)
+
+    # Old schema: the update that carries the counters fails, the sync still finishes.
+    def old_schema(call):
+        if "messages_listed" in call["payload"]:
+            raise RuntimeError("column sync_jobs.messages_listed does not exist")
+        return []
+    db = FakeDB({**rows, ("sync_jobs", "update"): old_schema})
+    result = _sync(db, handler, "job-c2")
+    finals = [c["payload"] for c in db.find("sync_jobs", "update") if c["payload"].get("status") == "succeeded"]
+    plain = [f for f in finals if "messages_listed" not in f]
+    check("WP4 a database without the counter columns still finishes the sync, without them",
+          result.get("status") == "ok" and len(plain) == 1, (result, finals))
+
+
+def test_one_active_sync():
+    """WP4 / B3: one queued or running sync per user."""
+    class UniqueViolation(Exception):
+        code = "23505"
+
+    def refuse(call):
+        raise UniqueViolation("duplicate key value violates unique constraint sync_jobs_one_active")
+
+    db = FakeDB({("sync_jobs", "insert"): refuse})
+    tasks.supabase_admin = db
+    check("WP4 a second active job for the user raises SyncAlreadyActive",
+          raises(lambda: tasks.create_sync_job(U, "manual"), tasks.SyncAlreadyActive))
+    stale = [c for c in db.find("sync_jobs", "update") if ("eq", "user_id", U) in c["filters"]]
+    check("WP4 the user's own dead jobs are failed before the insert, so they cannot block a new sync",
+          len(stale) == 1 and stale[0]["payload"]["status"] == "failed"
+          and any(f[0] == "lt" and f[1] == "created_at" for f in stale[0]["filters"]), stale)
+
+    def other_error(call):
+        raise ConnectionError("db down")
+    tasks.supabase_admin = FakeDB({("sync_jobs", "insert"): other_error})
+    check("WP4 any other insert error is not mistaken for a busy user",
+          raises(lambda: tasks.create_sync_job(U, "manual"), ConnectionError))
+
+    tasks.supabase_admin = FakeDB({("sync_jobs", "select"): [{"id": "job-1"}]})
+    check("WP4 has_active_sync is true while a recent job is queued or running", tasks.has_active_sync(U))
+    sel = tasks.supabase_admin.find("sync_jobs", "select")[0]["filters"]
+    check("WP4 has_active_sync looks only at this user's recent queued or running jobs",
+          ("eq", "user_id", U) in sel and ("in", "status", ["queued", "running"]) in sel
+          and any(f[0] == "gte" and f[1] == "created_at" for f in sel), sel)
+    tasks.supabase_admin = FakeDB()
+    check("WP4 has_active_sync is false with no active job", not tasks.has_active_sync(U))
+
+    # A scheduled sync for a user who is already syncing is skipped, not failed.
+    db = FakeDB({("sync_jobs", "insert"): refuse})
+    tasks.supabase_admin = db
+    result = tasks.fetch_gmail_for_user_task(U, None, "cron_runner")
+    check("WP4 a scheduled sync for a busy user is skipped without touching Gmail",
+          result.get("status") == "skipped" and not db.find("gmail_credentials", "select"), result)
+
+
+def test_prune_old_rows():
+    """WP6: event rows older than 90 days are deleted; a failure only warns."""
+    db = FakeDB()
+    tasks.supabase_admin = db
+    tasks.prune_old_rows()
+    deletes = db.find("app_events", "delete")
+    check("WP6 events older than 90 days are deleted",
+          len(deletes) == 1 and any(f[0] == "lt" and f[1] == "created_at" for f in deletes[0]["filters"]), deletes)
+
+    class Broken(FakeDB):
+        def table(self, name):
+            raise ConnectionError("db down")
+    tasks.supabase_admin = Broken()
+    check("WP6 a failed prune does not stop the scheduled run", not raises(tasks.prune_old_rows, Exception))
+
+
+def test_history_window():
+    """WP9: earlier months are read one calendar month (India) at a time, up to a limit."""
+    ist, now = tasks.IST, datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc)
+    w = tasks.next_history_window(datetime(2026, 9, 1, tzinfo=ist), now)
+    check("WP9 the next window is the month before the oldest month read",
+          w == (datetime(2026, 8, 1, tzinfo=ist), datetime(2026, 9, 1, tzinfo=ist)), w)
+    w = tasks.next_history_window(datetime(2026, 1, 1, tzinfo=ist), now)
+    check("WP9 the window steps back over a year boundary", w and w[0] == datetime(2025, 12, 1, tzinfo=ist), w)
+    w = tasks.next_history_window(datetime(2026, 9, 17, tzinfo=ist), now)
+    check("WP9 a date inside a month counts as that month's start",
+          w == (datetime(2026, 8, 1, tzinfo=ist), datetime(2026, 9, 1, tzinfo=ist)), w)
+    check("WP9 the last month inside the limit can still be read",
+          tasks.next_history_window(datetime(2025, 10, 1, tzinfo=ist), now) is not None)
+    check("WP9 nothing older than the limit is offered",
+          tasks.next_history_window(datetime(2025, 9, 1, tzinfo=ist), now) is None)
+
+    start, end = datetime(2026, 8, 1, tzinfo=ist), datetime(2026, 9, 1, tzinfo=ist)
+    q = tasks._gmail_window_query(start, end)
+    check("WP9 a window query keeps the bank senders and bounds both ends",
+          q.startswith(tasks.BANK_QUERY) and q.endswith(f"after:{int(start.timestamp())} before:{int(end.timestamp())}"), q)
+
+    # Unknown oldest month (users from before this feature): the earliest stored payment's month.
+    db = FakeDB({("gmail_sync", "select"): [{"history_from": None}],
+                 ("transactions", "select"): [{"timestamp": "2026-06-17T10:00:00+00:00"}]})
+    tasks.supabase_admin = db
+    w = tasks.history_window(U, now)
+    check("WP9 without a recorded start, the window follows the earliest stored payment",
+          w == (datetime(2026, 5, 1, tzinfo=ist), datetime(2026, 6, 1, tzinfo=ist)), w)
+    tasks.supabase_admin = FakeDB({("gmail_sync", "select"): [{"history_from": None}]})
+    w = tasks.history_window(U, now)
+    check("WP9 with no payments at all, the window is the month before the current one",
+          w == (datetime(2026, 8, 1, tzinfo=ist), datetime(2026, 9, 1, tzinfo=ist)), w)
+
+
+def test_backfill_sync():
+    """WP9: a backfill reads one earlier month and never touches the normal cursor."""
+    now = datetime.now(timezone.utc)
+    end = tasks._month_start_ist(now)
+    start = tasks._month_start_ist(end - timedelta(days=1))
+    queries = []
+
+    def handler(method, url, params):
+        if url.endswith("/messages"):
+            queries.append(params.get("q"))
+            return FakeResponse(200, {"messages": [{"id": "m1"}, {"id": "m2"}]})
+        msg = url.rsplit("/", 1)[1]
+        if msg == "m2":
+            return FakeResponse(429, {})
+        return FakeResponse(200, alert_message(msg, ALERT))
+
+    db = FakeDB({
+        ("gmail_credentials", "select"): [{"access_token": "acc", "refresh_token_encrypted": token_crypto.encrypt("ref")}],
+        ("gmail_sync", "select"): [{"last_fetched": "2026-09-20T08:00:00+00:00", "pending_message_ids": ["old"],
+                                     "history_from": end.isoformat()}],
+        ("transactions", "upsert"): [{"id": "r1"}],
+    })
+    tasks.supabase_admin = db
+    tasks.requests = FakeHTTP(handler)
+    tasks.run_pipeline_task = lambda uid: PIPELINE_RUNS.append(uid)
+    PIPELINE_RUNS.clear()
+    SLEEPS.clear()
+    result = tasks.backfill_gmail_for_user_task(U, "job-b1")
+
+    updates = [c["payload"] for c in db.find("gmail_sync", "update")]
+    check("WP9 the backfill searches exactly the month before the oldest one read",
+          queries == [tasks._gmail_window_query(start, end)], queries)
+    check("WP9 the oldest month read moves back",
+          any(u.get("history_from") == start.isoformat() for u in updates), updates)
+    check("WP9 the backfill never moves the normal read cursor",
+          not any("last_fetched" in u for u in updates), updates)
+    check("WP9 a message that could not be read is added to the retry list, the old ones kept",
+          any(u.get("pending_message_ids") == ["old", "m2"] for u in updates), updates)
+    check("WP9 the backfill finishes and runs the pipeline",
+          result.get("status") == "ok" and PIPELINE_RUNS == [U], result)
+
+    # At the limit: refused with a fixed message, Gmail untouched.
+    queries.clear()
+    old = tasks._month_start_ist(now.replace(year=now.year - 2))
+    db = FakeDB({
+        ("gmail_credentials", "select"): [{"access_token": "acc", "refresh_token_encrypted": None}],
+        ("gmail_sync", "select"): [{"history_from": old.isoformat()}],
+    })
+    tasks.supabase_admin = db
+    result = tasks.backfill_gmail_for_user_task(U, "job-b2")
+    final = db.find("sync_jobs", "update")[-1]["payload"]
+    check("WP9 a backfill past the limit fails with the fixed message and reads nothing",
+          queries == [] and final.get("status") == "failed" and final.get("error") == tasks.HISTORY_LIMIT_MESSAGE
+          and result.get("status") == "skipped", (final, result))
+
+
+def test_first_sync_records_where_history_starts():
+    """WP9: the first normal sync records the month it started reading from."""
+    def handler(method, url, params):
+        return FakeResponse(200, {"messages": []}) if url.endswith("/messages") else FakeResponse(200, {})
+    cred = [{"access_token": "acc", "refresh_token_encrypted": None}]
+
+    db = FakeDB({("gmail_credentials", "select"): cred, ("gmail_sync", "select"): [{"last_fetched": None, "history_from": None}]})
+    _sync(db, handler, "job-h1")
+    first = [c["payload"] for c in db.find("gmail_sync", "update") if "last_fetched" in c["payload"]][0]
+    month = tasks._month_start_ist(datetime.now(timezone.utc))
+    check("WP9 a first sync records the start of the month it read", first.get("history_from") == month.isoformat(), first)
+
+    db = FakeDB({("gmail_credentials", "select"): cred, ("gmail_sync", "select"): [{"last_fetched": "2026-09-20T08:00:00+00:00", "history_from": None}]})
+    _sync(db, handler, "job-h2")
+    later = [c["payload"] for c in db.find("gmail_sync", "update") if "last_fetched" in c["payload"]][0]
+    check("WP9 a later sync leaves an unknown start alone", "history_from" not in later, later)
+
+    db = FakeDB({("gmail_credentials", "select"): cred, ("gmail_sync", "select"): [{"last_fetched": None}]})
+    _sync(db, handler, "job-h3")
+    old = [c["payload"] for c in db.find("gmail_sync", "update") if "last_fetched" in c["payload"]][0]
+    check("WP9 a database without the column still syncs", "history_from" not in old, old)
+
+
 def test_jobs_and_fan_out():
     db = FakeDB({("sync_jobs", "insert"): [{"id": "job-9"}]})
     tasks.supabase_admin = db
@@ -785,6 +1040,7 @@ def test_jobs_and_fan_out():
         tasks.fetch_gmail_for_all_users_task(runner="cron_runner")
         select = db.find("gmail_sync", "select")[0]["filters"]
         check("3.3 scheduled syncs skip users who must reconnect", ("eq", "needs_reconnect", False) in select, select)
+        check("WP6 each scheduled run also prunes old event rows", bool(db.find("app_events", "delete")))
         check("3.7 each scheduled sync records which process ran it",
               sorted(runs) == [("u1", None, "cron_runner"), ("u2", None, "cron_runner")], runs)
     finally:
@@ -797,6 +1053,8 @@ if __name__ == "__main__":
                  test_gmail_query, test_list_pagination, test_refresh_rejected,
                  test_sync_success, test_logs_hold_no_email_text, test_sync_reconnect, test_sync_not_connected_and_failure,
                  test_download_failures, test_ist_dates, test_stale_jobs,
+                 test_sync_slots, test_sync_counters, test_one_active_sync, test_prune_old_rows,
+                 test_history_window, test_backfill_sync, test_first_sync_records_where_history_starts,
                  test_jobs_and_fan_out):
         test()
     print(f"\n{len(FAILED)} check(s) failed" if FAILED else "\nALL PIPELINE CHECKS PASSED")

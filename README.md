@@ -22,9 +22,9 @@ SpendStream reads the debit alerts your bank sends to Gmail, turns each one into
 | **Connect** | Link Gmail through Google OAuth (read-only scope). Only bank-alert emails are searched |
 | **Read** | Debits are parsed from the alerts. Credits, refunds, reversals, OTPs and declined payments are skipped |
 | **Sort** | Your own rules first, then a classifier. Below 50% confidence a payment is left as Unsure |
-| **Review** | A monthly dashboard, a transaction list filtered by month and category and a Needs review queue grouped by merchant |
+| **Review** | A monthly dashboard, a transaction list filtered by month, category and merchant name (with CSV download), a Needs review queue grouped by merchant, and a page of your category rules you can change or remove |
 
-Gmail is the only source. The first sync reads the current month; later syncs pick up from the last one, three times a day or on demand (once per 10 minutes).
+Gmail is the only source. The first sync reads the current month; later syncs pick up from the last one, three times a day or on demand (once per 10 minutes). "Read an earlier month" reads one more month per press, up to 12 months back.
 
 ---
 
@@ -92,7 +92,7 @@ The trained model files are **not in this repository**: their vocabulary holds r
 | **Database** | Supabase (Postgres) with row-level security; schema in `supabase/migrations/` |
 | **ML** | scikit-learn 1.7.2 (pinned), NumPy, SciPy, joblib. No torch or sentence embeddings |
 | **Hosting** | Backend on Render (Docker web service, `render.yaml`); frontend on Cloudflare Workers (static assets, see Deployment) |
-| **Automation** | GitHub Actions: CI, scheduled sync (3 times a day), weekly retrain, weekly encrypted database backup |
+| **Automation** | GitHub Actions: CI, scheduled sync (3 times a day), weekly retrain, daily encrypted database backup |
 
 ---
 
@@ -170,10 +170,11 @@ The browser reads its own rows from Supabase directly; these are the backend rou
 | GET | `/health` | none, per-IP limited | One database read; 503 if it fails (uptime monitors, `sync.yml`) |
 | POST | `/auth/google/start` | JWT | Returns Google's consent URL; 5 attempts per 10 minutes |
 | GET | `/auth/callback` | one-time `state` | Stores tokens (refresh token Fernet-encrypted), redirects to `FRONTEND_URL/?gmail=<connected\|denied\|expired\|error>` |
-| GET | `/fetch-gmail` | JWT | Starts a manual sync (202 with a `job_id`); 409 not connected or reconnect needed, 429 within 10 minutes of the last one |
+| GET | `/fetch-gmail` | JWT | Starts a manual sync (202 with a `job_id`); 409 not connected, reconnect needed or a sync already running, 429 within 10 minutes of the last one |
+| POST | `/backfill-gmail` | JWT | Reads one earlier month of bank alerts (up to 12 months back); same limits as a manual sync |
 | POST | `/cron/fetch-all` | `X-Cron-Secret` | Syncs every connected user in the background |
+| GET | `/cron/status` | `X-Cron-Secret` | Counts of sync jobs since a time; the scheduled workflow uses it to check a run finished |
 | DELETE | `/account` | JWT | Revokes Gmail access, deletes the user's rows and the auth user |
-| GET | `/model-info` | JWT | Metadata of the loaded model |
 
 CORS allows only `FRONTEND_URL` (GET, POST, DELETE; no cookies).
 
@@ -192,6 +193,7 @@ CORS allows only `FRONTEND_URL` (GET, POST, DELETE; no cookies).
 | `FRONTEND_URL` | Only CORS origin and the post-OAuth redirect (default `http://localhost:5173`) |
 | `BACKEND_URL` | Base of the OAuth redirect URI `${BACKEND_URL}/auth/callback` (default `http://localhost:8000`) |
 | `CRON_MAX_WORKERS` | Concurrent users per scheduled sync (default 5) |
+| `MAX_CONCURRENT_SYNCS` | Gmail syncs running at once in the API process; others wait as queued (default 3) |
 | `DEPLOY_HOOK_URL` | Used only by the weekly retrain job (a GitHub secret) to restart the backend |
 
 **Frontend** (`frontend/.env`, read by Vite at build time): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL` (must equal the backend's `BACKEND_URL`).
@@ -210,7 +212,7 @@ Browser
   └─► Render web service (FastAPI, Docker)  https://spendstream-backend.onrender.com
           ├─► Supabase (service role), Supabase Storage bucket `models`
           └─► Google OAuth and Gmail API
-GitHub Actions ─► POST /cron/fetch-all (3 times a day), weekly retrain, weekly backup
+GitHub Actions ─► POST /cron/fetch-all (3 times a day), weekly retrain, daily backup
 ```
 
 **Backend on Render.** `render.yaml` defines one Docker web service (`spendstream-backend`, free plan, Singapore, `backend/Dockerfile` with `backend/` as the build context, health check `/ping`, auto-deploy on commit). The image starts `uvicorn main:app --host 0.0.0.0 --port 8000`; the Dockerfile fixes the port, `render.yaml` sets no `PORT`. Every secret is declared `sync: false` and typed into the Render dashboard. On startup the API downloads the live model from the private `models` bucket. The free plan sleeps when idle; `sync.yml` wakes it through `/health` before each scheduled sync.
@@ -223,9 +225,9 @@ GitHub Actions ─► POST /cron/fetch-all (3 times a day), weekly retrain, week
 
 ## Current Status and Limitations
 
-**Implemented and used:** Gmail sync (manual and scheduled), the raw to bronze to silver pipeline, rule / directory / model categorisation, per-user correction rules, monthly dashboard, transaction list, Needs review queue, account deletion, public and legal pages.
+**Implemented and used:** Gmail sync (manual and scheduled), the raw to bronze to silver pipeline, rule / directory / model categorisation, per-user correction rules, monthly dashboard, transaction list with search and CSV export, Needs review queue, your category rules page, reading earlier months, account deletion, public and legal pages.
 
-**Not confirmed:** run results of the four GitHub Actions workflows (the repository is pushed, but run history and repository secrets could not be checked from here), the weekly retrain against a real project, and the weekly backup.
+**Not confirmed:** run results of the four GitHub Actions workflows (the repository is pushed, but run history and repository secrets could not be checked from here), the weekly retrain against a real project, and the daily backup (no backup secrets exist yet).
 
 **Limits:**
 - Only debit alerts are read; credits are skipped. Only HDFC alert formats have been checked against a real mailbox, although the Gmail query also names ICICI, SBI, Axis, Kotak and Yes Bank.
@@ -265,7 +267,7 @@ SpendStream/
 │   └── tests/                # run_local.sh and SQL checks
 ├── frontend/src/
 │   ├── pages/                # Home, How it works, Your data, Privacy, Terms, Login, Connect,
-│   │                         # Dashboard, Transactions, Needs review, Account
+│   │                         # Dashboard, Transactions, Needs review, Rules, Account
 │   ├── components/
 │   └── lib/                  # Supabase client, API helper, data hooks
 ├── frontend/public/_headers  # CSP and other headers served by the Cloudflare frontend

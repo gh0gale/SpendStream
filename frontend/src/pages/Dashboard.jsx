@@ -10,10 +10,13 @@ import {
 } from '../lib/format'
 import { notifyReviewChanged } from '../lib/reviewQueue'
 import { supabase } from '../lib/supabase'
+import { track } from '../lib/track'
 import { useGmailSync } from '../lib/useGmailSync'
 import { must, useLoad } from '../lib/useLoad'
 import { usePageTitle } from '../lib/usePageTitle'
-import { monthTotal, useSpending } from '../lib/useSpending'
+import { useSpendingData } from '../lib/spendingContext'
+import { monthTotal } from '../lib/useSpending'
+import { CONTACT_EMAIL } from './legal'
 import styles from './Dashboard.module.css'
 
 // /auth/callback sends the user back with ?gmail=<result> (contract in
@@ -38,9 +41,9 @@ export default function Dashboard() {
   const [params, setParams] = useSearchParams()
   const [gmailResult] = useState(() => GMAIL_RESULTS[params.get('gmail')] ? params.get('gmail') : null)
 
-  const spending = useSpending(user.id)
-  const { reload } = spending
-  const onFinished = useCallback(() => { reload(); notifyReviewChanged() }, [reload])
+  const spending = useSpendingData()
+  // AppLayout reloads the spending read and the review count when this fires.
+  const onFinished = useCallback(() => notifyReviewChanged(), [])
   const sync = useGmailSync(user.id, { onFinished })
 
   // A new connection starts its first sync at once, exactly once (the ref
@@ -50,9 +53,27 @@ export default function Dashboard() {
   useEffect(() => {
     if (!gmailResult || handledResult.current) return
     handledResult.current = true
+    track('gmail_result', { result: gmailResult })
     setParams({}, { replace: true })
     if (gmailResult === 'connected') start()
   }, [gmailResult, setParams, start])
+
+  // Once per visit: the dashboard showed data, and the reconnect prompt was on screen.
+  const viewed = useRef(false)
+  useEffect(() => {
+    if (viewed.current || spending.status !== 'ready') return
+    viewed.current = true
+    track('dashboard_viewed', {
+      months_available: spending.months.length,
+      has_unsure: spending.months.some(m => m.unsure.count > 0),
+    })
+  }, [spending.status, spending.months])
+  const reconnectShown = useRef(false)
+  useEffect(() => {
+    if (sync.gmail.status !== 'reconnect' || reconnectShown.current) return
+    reconnectShown.current = true
+    track('reconnect_prompt_shown')
+  }, [sync.gmail.status])
 
   // The selected month survives leaving the page (per tab). Stored by month,
   // not index, so a new month arriving does not shift the selection.
@@ -63,6 +84,7 @@ export default function Dashboard() {
   const selectMonth = (i) => {
     const key = months[i]?.month
     if (!key) return
+    track('month_changed')
     setMonthKey(key)
     try { sessionStorage.setItem(MONTH_KEY, key) } catch { /* storage blocked: selection lasts this visit only */ }
   }
@@ -164,6 +186,7 @@ function Spending({ spending, current, previous, index, onMonth, months, userId 
           No bank alerts found this month. SpendStream currently reads HDFC alerts reliably.
           Check this is the Gmail that receives them. <Link to="/how-it-works">How it works</Link>
         </p>
+        <NothingFound userId={userId} />
       </section>
     )
   }
@@ -209,6 +232,32 @@ function Spending({ spending, current, previous, index, onMonth, months, userId 
         <LargestPayments userId={userId} month={month} />
       </div>
     </div>
+  )
+}
+
+// Why the dashboard is empty, from what the syncs recorded: how many bank
+// emails the search matched and how many read as payments. Syncs from before
+// the counters existed record nothing, and then this says nothing.
+function NothingFound({ userId }) {
+  const fetcher = useCallback(() => must(supabase.from('sync_jobs')
+    .select('messages_listed, alerts_parsed')
+    .eq('user_id', userId).eq('status', 'succeeded').not('messages_listed', 'is', null)
+    .range(0, 499)), [userId])
+  const list = useLoad(fetcher)
+  if (list.status !== 'ready' || !list.data?.length) return null
+
+  const listed = list.data.reduce((s, j) => s + j.messages_listed, 0)
+  const parsed = list.data.reduce((s, j) => s + (j.alerts_parsed ?? 0), 0)
+  if (listed === 0) {
+    return <p className="muted">The search found no bank emails since the first day of this month.</p>
+  }
+  if (parsed > 0) return null
+  return (
+    <p className="muted">
+      SpendStream found {plural(listed, 'bank email')} but could not read a payment from any of them.
+      They may be credits or notices, or from a bank whose format is not verified yet. Forward one
+      debit alert, with the account number blanked, to <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
+    </p>
   )
 }
 

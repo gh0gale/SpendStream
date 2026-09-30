@@ -28,6 +28,8 @@ TOKEN_ENCRYPTION_KEY      = _get("TOKEN_ENCRYPTION_KEY")
 FRONTEND_URL              = _get("FRONTEND_URL", "http://localhost:5173").rstrip("/")
 BACKEND_URL               = _get("BACKEND_URL", "http://localhost:8000").rstrip("/")
 CRON_MAX_WORKERS          = int(_get("CRON_MAX_WORKERS", "5"))
+# Syncs allowed to run at once in one process (tasks._SYNC_SLOTS); the rest wait.
+MAX_CONCURRENT_SYNCS      = int(_get("MAX_CONCURRENT_SYNCS", "3"))
 # Optional. weekly_retrain.py calls it after shipping a model so the host
 # restarts the backend, which then downloads the new model.
 DEPLOY_HOOK_URL           = _get("DEPLOY_HOOK_URL")

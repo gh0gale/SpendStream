@@ -1,0 +1,13 @@
+{
+  "name": "SpendStream",
+  "short_name": "SpendStream",
+  "description": "Your UPI spending, sorted from the bank alerts in your Gmail.",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F3EFE4",
+  "theme_color": "#F3EFE4",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

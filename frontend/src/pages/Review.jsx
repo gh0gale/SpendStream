@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import CategoryPicker from '../components/CategoryPicker'
 import ResultNotice from '../components/ResultNotice'
@@ -6,6 +6,7 @@ import { ErrorNotice, SkeletonRows } from '../components/States'
 import { useAuth } from '../lib/auth'
 import { formatDay, formatINR, plural } from '../lib/format'
 import { supabase } from '../lib/supabase'
+import { track } from '../lib/track'
 import { useCorrection } from '../lib/useCorrection'
 import { must, useLoad } from '../lib/useLoad'
 import { usePageTitle } from '../lib/usePageTitle'
@@ -53,7 +54,7 @@ export default function Review() {
     const group = picking
     const index = groups.findIndex(g => g.key === group.key)
     try {
-      const { alsoUpdated } = await correct(group.rows[0], cat)
+      const { alsoUpdated } = await correct(group.rows[0], cat, 'review')
       setPicking(null)
       setResult({ text: `Saved. ${plural(1 + alsoUpdated, 'payment')} to ${group.merchant} ${alsoUpdated ? 'are' : 'is'} now ${cat}.` })
       const rest = groups.filter(g => g.key !== group.key)
@@ -70,6 +71,19 @@ export default function Review() {
   const count = groups.reduce((s, g) => s + g.rows.length, 0)
   const merchants = queue.data?.length ?? 0
   const done = merchants - groups.length
+
+  // Once per visit each: the queue opened, and the queue was emptied by sorting.
+  const tracked = useRef({ opened: false, cleared: false })
+  useEffect(() => {
+    if (queue.status !== 'ready' || !queue.data) return
+    if (!tracked.current.opened) {
+      tracked.current.opened = true
+      track('review_opened', { groups: merchants, payments: count })
+    } else if (groups.length === 0 && done > 0 && !tracked.current.cleared) {
+      tracked.current.cleared = true
+      track('review_cleared', { merchants_sorted: done })
+    }
+  }, [queue.status, queue.data, groups.length, merchants, count, done])
 
   return (
     <div className={styles.page}>

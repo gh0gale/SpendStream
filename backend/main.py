@@ -25,15 +25,21 @@ from fastapi.responses import JSONResponse, RedirectResponse
 import config
 import model_store
 import token_crypto
-from ml.categoriser import model_info
 
 # Import plain task functions
 from tasks import (
+    ACTIVE_MESSAGE,
+    FAILED_MESSAGE,
+    HISTORY_LIMIT_MESSAGE,
     INTERRUPTED_MESSAGE,
     RECONNECT_MESSAGE,
+    SyncAlreadyActive,
+    backfill_gmail_for_user_task,
     create_sync_job,
     fetch_gmail_for_user_task,
     fetch_gmail_for_all_users_task,
+    has_active_sync,
+    history_window,
 )
 
 # Refuse to start half-configured: missing keys, empty CRON_SECRET, bad Fernet key.
@@ -78,6 +84,7 @@ _health_hits: dict[str, list[datetime]] = {}
 # Tables with per-user rows, children before parents (foreign keys).
 # gold_monthly_summary is a view over silver_transactions, so it is not listed.
 USER_TABLES = (
+    "app_events",
     "category_feedback",
     "user_merchant_rules",
     "silver_transactions",
@@ -124,8 +131,12 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 @app.get("/ping")
-def ping():
-    """The process is up. Checks nothing else."""
+async def ping():
+    """
+    The process is up. Checks nothing else. Deliberately `async def`: it runs
+    on the event loop, so running syncs filling Starlette's thread pool cannot
+    make Render's health check time out and restart the service.
+    """
     return {"status": "alive"}
 
 
@@ -329,15 +340,19 @@ def _claim_manual_sync(user_id: str) -> str:
     return "reconnect_required" if row.data[0].get("needs_reconnect") else "limited"
 
 
-@app.get("/fetch-gmail", status_code=202)
-def fetch_gmail(request: Request, background_tasks: BackgroundTasks):
+def _start_manual_job(user_id: str, kind: str, task, background_tasks: BackgroundTasks) -> dict:
     """
-    Kick off a Gmail fetch + ETL pipeline for the logged-in user.
-    Returns 202 Accepted immediately with the sync_jobs id the dashboard polls.
-    One manual sync per user per 10 minutes.
+    Shared by /fetch-gmail and /backfill-gmail: refuse while a sync is live,
+    claim the once-per-10-minutes window, create the job and schedule the task.
     """
-    user  = get_user_from_token(request)
-    claim = _claim_manual_sync(user.id)
+    # Checked before the claim, so a refused request does not use up the 10-minute window.
+    if has_active_sync(user_id):
+        raise HTTPException(status_code=409, detail=ACTIVE_MESSAGE)
+    return _claim_and_schedule(user_id, kind, task, background_tasks)
+
+
+def _claim_and_schedule(user_id: str, kind: str, task, background_tasks: BackgroundTasks) -> dict:
+    claim = _claim_manual_sync(user_id)
     if claim == "not_connected":
         raise HTTPException(status_code=409, detail="Gmail is not connected. Connect Gmail first.")
     if claim == "reconnect_required":
@@ -349,20 +364,52 @@ def fetch_gmail(request: Request, background_tasks: BackgroundTasks):
             headers={"Retry-After": str(int(MANUAL_SYNC_INTERVAL.total_seconds()))},
         )
 
-    job_id = create_sync_job(user.id, "manual")
-    background_tasks.add_task(fetch_gmail_for_user_task, user.id, job_id)
-    log.info("[API] Scheduled fetch_gmail_for_user_task for user %s (job %s)", user.id, job_id)
+    try:
+        job_id = create_sync_job(user_id, kind)
+    except SyncAlreadyActive:       # another request won the race; the database allows one
+        raise HTTPException(status_code=409, detail=ACTIVE_MESSAGE)
+    background_tasks.add_task(task, user_id, job_id)
+    log.info("[API] Scheduled %s sync for user %s (job %s)", kind, user_id, job_id)
+    return {"job_id": job_id}
 
-    return {
-        "status":  "accepted",
-        "message": "Gmail sync started.",
-        "job_id":  job_id,
-    }
+
+@app.get("/fetch-gmail", status_code=202)
+def fetch_gmail(request: Request, background_tasks: BackgroundTasks):
+    """
+    Kick off a Gmail fetch + ETL pipeline for the logged-in user.
+    Returns 202 Accepted immediately with the sync_jobs id the dashboard polls.
+    One manual sync per user per 10 minutes.
+    """
+    user = get_user_from_token(request)
+    job = _start_manual_job(user.id, "manual", fetch_gmail_for_user_task, background_tasks)
+    return {"status": "accepted", "message": "Gmail sync started.", "job_id": job["job_id"]}
+
+
+@app.post("/backfill-gmail", status_code=202)
+def backfill_gmail(request: Request, background_tasks: BackgroundTasks):
+    """
+    Read one earlier month of bank alerts (the month before the oldest one
+    read, up to HISTORY_MONTHS back). Same limits as a manual sync: it counts
+    toward the once-per-10-minutes window and never runs beside another sync.
+    """
+    user = get_user_from_token(request)
+    if has_active_sync(user.id):
+        raise HTTPException(status_code=409, detail=ACTIVE_MESSAGE)
+    # Also before the claim: a refusal at the limit must not use up the window.
+    if history_window(user.id) is None:
+        raise HTTPException(status_code=409, detail=HISTORY_LIMIT_MESSAGE)
+    job = _claim_and_schedule(user.id, "backfill", backfill_gmail_for_user_task, background_tasks)
+    return {"status": "accepted", "message": "Reading an earlier month.", "job_id": job["job_id"]}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Cron endpoint — fan-out fetch for ALL users
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _require_cron_secret(x_cron_secret: str | None) -> None:
+    if not x_cron_secret or not hmac.compare_digest(x_cron_secret.encode(), config.CRON_SECRET.encode()):
+        raise HTTPException(status_code=403, detail="Invalid or missing cron secret")
+
 
 @app.post("/cron/fetch-all", status_code=202)
 def cron_fetch_all(background_tasks: BackgroundTasks, x_cron_secret: str | None = Header(default=None)):
@@ -370,8 +417,7 @@ def cron_fetch_all(background_tasks: BackgroundTasks, x_cron_secret: str | None 
     Runs fetch_gmail_for_all_users_task in the background for every connected
     user. Requires the X-Cron-Secret header; CRON_SECRET is mandatory config.
     """
-    if not x_cron_secret or not hmac.compare_digest(x_cron_secret.encode(), config.CRON_SECRET.encode()):
-        raise HTTPException(status_code=403, detail="Invalid or missing cron secret")
+    _require_cron_secret(x_cron_secret)
 
     background_tasks.add_task(fetch_gmail_for_all_users_task)
     log.info("[API] Scheduled fetch_gmail_for_all_users_task")
@@ -379,6 +425,34 @@ def cron_fetch_all(background_tasks: BackgroundTasks, x_cron_secret: str | None 
     return {
         "status":  "accepted",
         "message": "Batch fetch scheduled — processing all connected users in background",
+    }
+
+
+@app.get("/cron/status")
+def cron_status(since: str, x_cron_secret: str | None = Header(default=None)):
+    """
+    Did the scheduled run finish cleanly? Counts of sync jobs created since
+    `since` (ISO time), for sync.yml to check after starting a run. Counts only.
+    failed_unexpected is a crash or interruption; a user who must reconnect
+    Gmail is an expected failure, not a broken run.
+    """
+    _require_cron_secret(x_cron_secret)
+    try:
+        start = datetime.fromisoformat(since)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="since must be an ISO 8601 time")
+
+    rows = (
+        supabase_admin.table("sync_jobs").select("status, error")
+        .gte("created_at", start.isoformat()).execute()
+    ).data or []
+    unexpected = (FAILED_MESSAGE, INTERRUPTED_MESSAGE)
+    failed     = [r for r in rows if r["status"] == "failed"]
+    return {
+        "running":           sum(1 for r in rows if r["status"] in ("queued", "running")),
+        "succeeded":         sum(1 for r in rows if r["status"] == "succeeded"),
+        "failed_unexpected": sum(1 for r in failed if r.get("error") in unexpected),
+        "failed_expected":   sum(1 for r in failed if r.get("error") not in unexpected),
     }
 
 
@@ -424,14 +498,3 @@ def delete_account(request: Request):
     supabase_admin.auth.admin.delete_user(user.id)
     log.info("[Account] Deleted user %s", user.id)
     return {"status": "deleted"}
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Model status
-# ─────────────────────────────────────────────────────────────────────────────
-
-@app.get("/model-info")
-def get_model_info(request: Request):
-    """Signed-in users only (SEC-08); metadata was read once, when the model loaded."""
-    get_user_from_token(request)
-    return model_info()

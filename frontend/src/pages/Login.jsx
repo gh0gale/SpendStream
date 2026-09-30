@@ -2,9 +2,13 @@ import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { supabase } from '../lib/supabase'
 import { usePageTitle } from '../lib/usePageTitle'
+import { CONTACT_EMAIL } from './legal'
 import styles from './Login.module.css'
 
 const MIN_PASSWORD = 8
+
+// A confirmation link lands on /connect, the next step for a new account.
+const confirmRedirect = () => `${window.location.origin}/connect`
 
 export default function Login() {
   const [params, setParams] = useSearchParams()
@@ -18,6 +22,8 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [unconfirmed, setUnconfirmed] = useState('')   // email awaiting confirmation
+  const [resending, setResending] = useState(false)
 
   const passwordShort = isSignup && password.length > 0 && password.length < MIN_PASSWORD
   const canSubmit = email.trim() && password && !passwordShort && !submitting
@@ -26,6 +32,7 @@ export default function Login() {
     setParams(next === 'signup' ? { mode: 'signup' } : {}, { replace: true })
     setError('')
     setNotice('')
+    setUnconfirmed('')
   }
 
   const handleSubmit = async (e) => {
@@ -35,21 +42,39 @@ export default function Login() {
     setSubmitting(true)
     try {
       if (isSignup) {
-        const { data, error: err } = await supabase.auth.signUp({ email: email.trim(), password })
+        const { data, error: err } = await supabase.auth.signUp({
+          email: email.trim(), password, options: { emailRedirectTo: confirmRedirect() },
+        })
         if (err) throw err
         // With email confirmation off Supabase signs the user in at once.
         if (data.session) navigate('/connect', { replace: true })
-        else setNotice('Account created. Check your email to confirm it, then sign in.')
+        else {
+          setNotice('Account created. Open the link we emailed you to confirm it. Check your spam folder if it does not arrive.')
+          setUnconfirmed(email.trim())
+        }
       } else {
         const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
         if (err) throw err
         navigate('/app', { replace: true })
       }
     } catch (err) {
-      setError(err.message)
+      setError(err.code === 'signup_disabled'
+        ? `Sign-up is invite only for now. Ask for an invite at ${CONTACT_EMAIL}.`
+        : err.message)
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleResend = async () => {
+    setError('')
+    setResending(true)
+    const { error: err } = await supabase.auth.resend({
+      type: 'signup', email: unconfirmed, options: { emailRedirectTo: confirmRedirect() },
+    })
+    setResending(false)
+    if (err) setError(err.message)
+    else setNotice('Sent again. It can take a minute. Check your spam folder.')
   }
 
   const handleGoogle = async () => {
@@ -117,6 +142,12 @@ export default function Login() {
 
             {error && <p className="help-error" role="alert">{error}</p>}
             {notice && <p role="status">{notice}</p>}
+            {unconfirmed && (
+              <button type="button" className="btn btn-text" onClick={handleResend} disabled={resending}>
+                {resending && <span className="spinner" aria-hidden="true" />}
+                {resending ? 'Sending' : 'Send the email again'}
+              </button>
+            )}
 
             <button type="submit" className="btn btn-primary btn-block" disabled={!canSubmit}>
               {submitting && <span className="spinner" aria-hidden="true" />}

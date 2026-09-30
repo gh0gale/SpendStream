@@ -1,7 +1,7 @@
-# Weekly encrypted database backup (plan Phase 9).
+# Daily encrypted database backup (plan Phase 9; daily since 2026-10-01, scalability plan WP11).
 #
 # pg_dump against the production Supabase Postgres connection, encrypted
-# symmetrically with gpg, kept 7 days as a workflow artifact (decided:
+# symmetrically with gpg, kept 7 days as a workflow artifact (so the last 7 daily dumps) (decided:
 # docs/SYSTEM_AUDIT_AND_PLAN.md section L, Phase 9). Restore drill:
 # docs/USER_TODO.md.
 #
@@ -12,11 +12,11 @@
 #                        and from the backups themselves; losing it makes
 #                        every backup unreadable
 
-name: Weekly backup
+name: Daily backup
 
 on:
   schedule:
-    - cron: "0 20 * * 0"   # Sunday 01:30 IST
+    - cron: "0 20 * * *"   # every day 01:30 IST
   workflow_dispatch:
 
 permissions:

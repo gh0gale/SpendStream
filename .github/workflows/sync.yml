@@ -24,7 +24,7 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Check the secrets are set
         env:
@@ -49,7 +49,33 @@ jobs:
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          echo "STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
           code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 60 \
                  -X POST -H "X-Cron-Secret: $CRON_SECRET" "$BACKEND_URL/cron/fetch-all")
           echo "POST /cron/fetch-all -> $code"
           [ "$code" = "202" ]
+
+      # The 202 only means the work was scheduled. Wait, then ask the backend
+      # how the run went: a crash, a restart or a stuck job fails this workflow,
+      # and GitHub emails you. Users who must reconnect Gmail are not failures.
+      - name: Check the run finished cleanly
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          sleep 420
+          for attempt in 1 2 3 4 5; do
+            body=$(curl -fsS --max-time 60 -H "X-Cron-Secret: $CRON_SECRET" \
+                   "$BACKEND_URL/cron/status?since=$STARTED")
+            echo "status: $body"
+            running=$(echo "$body" | sed -n 's/.*"running":\([0-9]*\).*/\1/p')
+            failed=$(echo "$body" | sed -n 's/.*"failed_unexpected":\([0-9]*\).*/\1/p')
+            if [ "$failed" != "0" ]; then
+              echo "Unexpected sync failures (or an unreadable answer)."
+              exit 1
+            fi
+            [ "$running" = "0" ] && exit 0
+            sleep 60
+          done
+          echo "Syncs were still running after the wait."
+          exit 1

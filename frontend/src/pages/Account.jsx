@@ -34,6 +34,14 @@ export default function Account() {
           <div className={styles.body}><GmailStatus gmail={gmail} onRetry={reloadGmail} /></div>
         </section>
 
+        <section className={styles.section} aria-labelledby="rules-h">
+          <h2 id="rules-h" className="caption">Category rules</h2>
+          <div className={`${styles.body} ${styles.row}`}>
+            <p>Every category you chose is remembered for that merchant.</p>
+            <Link to="/app/rules" className="btn">See your rules</Link>
+          </div>
+        </section>
+
         <section className={styles.section} aria-labelledby="account-h">
           <h2 id="account-h" className="caption">Signed in</h2>
           <div className={`${styles.body} ${styles.row}`}>

@@ -141,7 +141,6 @@ def run_raw_to_bronze(user_id: str) -> int:
                 "transaction_type": row.get("transaction_type", "debit"),
                 "timestamp":        row.get("timestamp"),
                 "source":           row.get("source", "unknown"),
-                "raw_text":         row.get("raw_text", ""),
                 "fingerprint":      fingerprint,
                 "message_id":       row.get("message_id"),
                 "is_duplicate":     False,

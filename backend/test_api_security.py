@@ -17,6 +17,7 @@ prefix MSYS_NO_PATHCONV=1 and use "$(pwd -W)"):
 Exit code is non-zero if any check fails.
 """
 
+import inspect
 import os
 import sys
 from datetime import datetime, timedelta, timezone
@@ -174,6 +175,8 @@ def fake_create_sync_job(user_id, kind, runner="api"):
 
 main.get_user_from_token            = fake_get_user
 main.create_sync_job                = fake_create_sync_job
+main.has_active_sync                = lambda user_id: False
+main.backfill_gmail_for_user_task   = lambda user_id, job_id: SCHEDULED.append(("backfill", user_id, job_id))
 main.fetch_gmail_for_user_task      = lambda user_id, job_id=None, runner="api": SCHEDULED.append(("user", user_id, job_id))
 main.fetch_gmail_for_all_users_task = lambda runner="api": SCHEDULED.append(("all",))
 
@@ -301,10 +304,19 @@ def test_health_rate_limit():
         main._health_hits = {}
 
 
-def test_model_info_needs_login():
-    check("SEC-08 /model-info without a session token is 401", client.get("/model-info").status_code == 401)
-    r = client.get("/model-info", headers=AUTH)
-    check("SEC-08 /model-info works for a signed-in user", r.status_code == 200 and "model_loaded" in r.json(), r.text)
+def test_model_info_removed():
+    check("SEC-06 /model-info no longer exists (nothing called it)",
+          client.get("/model-info", headers=AUTH).status_code == 404)
+
+
+def test_ping_is_async():
+    # A plain `def` route waits for a free thread in Starlette's pool, which
+    # running syncs can fill; Render would then fail the health check and
+    # restart the service, killing every sync in flight.
+    check("/ping is async, so a saturated thread pool cannot fail Render's health check",
+          inspect.iscoroutinefunction(main.ping))
+    r = client.get("/ping")
+    check("/ping answers alive", r.status_code == 200 and r.json() == {"status": "alive"}, r.text)
 
 
 def test_oauth_start_throttle():
@@ -433,6 +445,107 @@ def test_sync_limit():
         main._claim_manual_sync = real_claim
 
 
+def test_sync_already_active():
+    """WP4 / B3: a second sync for a user who is already syncing is refused with 409."""
+    real = (main.has_active_sync, main._claim_manual_sync, main.create_sync_job)
+    claims = []
+    try:
+        main._claim_manual_sync = lambda user_id: claims.append(user_id) or "ok"
+        main.has_active_sync = lambda user_id: True
+        SCHEDULED.clear()
+        r = client.get("/fetch-gmail", headers=AUTH)
+        check("WP4 /fetch-gmail is 409 while a sync is already running",
+              r.status_code == 409 and "already running" in r.json().get("detail", ""), (r.status_code, r.text))
+        check("WP4 the refusal does not use up the 10-minute window", claims == [], claims)
+        check("WP4 nothing is scheduled for a refused sync", SCHEDULED == [], SCHEDULED)
+
+        # The race: no active job when checked, but another request got in first.
+        main.has_active_sync = lambda user_id: False
+
+        def busy(*args, **kwargs):
+            raise main.SyncAlreadyActive("sync_jobs_one_active")
+        main.create_sync_job = busy
+        SCHEDULED.clear()
+        r = client.get("/fetch-gmail", headers=AUTH)
+        check("WP4 losing the race for the active-sync slot is also 409",
+              r.status_code == 409 and SCHEDULED == [], (r.status_code, SCHEDULED))
+    finally:
+        main.has_active_sync, main._claim_manual_sync, main.create_sync_job = real
+
+
+def test_cron_status():
+    """WP5: the scheduled run can be checked after it was started."""
+    since = "2026-10-01T02:30:00Z"
+    secret = {"X-Cron-Secret": "test-cron-secret"}
+    check("WP5 /cron/status without the secret is 403",
+          client.get("/cron/status", params={"since": since}).status_code == 403)
+    check("WP5 /cron/status with a wrong secret is 403",
+          client.get("/cron/status", params={"since": since}, headers={"X-Cron-Secret": "wrong"}).status_code == 403)
+
+    main.supabase_admin = FakeDB({("sync_jobs", "select"): [
+        {"status": "succeeded", "error": None},
+        {"status": "running",   "error": None},
+        {"status": "queued",    "error": None},
+        {"status": "failed",    "error": main.FAILED_MESSAGE},
+        {"status": "failed",    "error": main.INTERRUPTED_MESSAGE},
+        {"status": "failed",    "error": main.RECONNECT_MESSAGE},
+    ]})
+    r = client.get("/cron/status", params={"since": since}, headers=secret)
+    check("WP5 counts running, succeeded, unexpected and expected failures",
+          r.status_code == 200 and r.json() == {"running": 2, "succeeded": 1,
+                                                "failed_unexpected": 2, "failed_expected": 1}, r.text)
+    calls = [c for c in main.supabase_admin.calls if c[:2] == ("sync_jobs", "select")]
+    check("WP5 only jobs created since the given time are counted",
+          len(calls) == 1 and any(f[0] == "gte" and f[1] == "created_at" for f in calls[0][3]), calls)
+    check("WP5 the response carries counts only, no user ids or error text",
+          set(r.json()) == {"running", "succeeded", "failed_unexpected", "failed_expected"})
+    check("WP5 a missing or malformed since is rejected",
+          client.get("/cron/status", headers=secret).status_code == 422
+          and client.get("/cron/status", params={"since": "yesterday"}, headers=secret).status_code == 422)
+
+
+def test_backfill_route():
+    """WP9: POST /backfill-gmail reads one earlier month, under the same limits as a manual sync."""
+    check("WP9 /backfill-gmail without a session token is 401", client.post("/backfill-gmail").status_code == 401)
+    real = (main.has_active_sync, main._claim_manual_sync, main.history_window)
+    claims = []
+    try:
+        main.history_window = lambda user_id: ("start", "end")
+        main.has_active_sync = lambda user_id: False
+        main._claim_manual_sync = lambda user_id: claims.append(user_id) or "ok"
+        SCHEDULED.clear()
+        JOBS_CREATED.clear()
+        r = client.post("/backfill-gmail", headers=AUTH)
+        check("WP9 /backfill-gmail is 202 with a job id", r.status_code == 202 and r.json().get("job_id") == "job-1", r.text)
+        check("WP9 the job is a backfill and runs the backfill task",
+              JOBS_CREATED == [(USER_ID, "backfill", "api")] and SCHEDULED == [("backfill", USER_ID, "job-1")],
+              (JOBS_CREATED, SCHEDULED))
+
+        for outcome, status in (("limited", 429), ("not_connected", 409), ("reconnect_required", 409)):
+            SCHEDULED.clear()
+            main._claim_manual_sync = lambda user_id, o=outcome: o
+            r = client.post("/backfill-gmail", headers=AUTH)
+            check(f"WP9 /backfill-gmail shares the manual-sync limits: {outcome} is {status}",
+                  r.status_code == status and SCHEDULED == [], (r.status_code, SCHEDULED))
+
+        claims.clear()
+        main._claim_manual_sync = lambda user_id: claims.append(user_id) or "ok"
+        main.has_active_sync = lambda user_id: True
+        r = client.post("/backfill-gmail", headers=AUTH)
+        check("WP9 a backfill is refused while a sync is running, without using the window",
+              r.status_code == 409 and claims == [], (r.status_code, claims))
+
+        main.has_active_sync = lambda user_id: False
+        main.history_window = lambda user_id: None
+        SCHEDULED.clear()
+        r = client.post("/backfill-gmail", headers=AUTH)
+        check("WP9 a backfill past the limit is 409 with the fixed message, without using the window",
+              r.status_code == 409 and "12 months" in r.json().get("detail", "") and claims == [] and SCHEDULED == [],
+              (r.status_code, r.text, claims))
+    finally:
+        main.has_active_sync, main._claim_manual_sync, main.history_window = real
+
+
 def test_interrupted_jobs():
     db = FakeDB()
     main.supabase_admin = db
@@ -464,6 +577,7 @@ def test_delete_account():
     check("3.6 the monthly totals view is not deleted from; it has no rows of its own",
           "gold_monthly_summary" not in main.USER_TABLES, main.USER_TABLES)
     check("3.7 sync jobs are deleted with the account", "sync_jobs" in main.USER_TABLES, main.USER_TABLES)
+    check("WP6 event rows are deleted with the account", "app_events" in main.USER_TABLES, main.USER_TABLES)
     check("SEC correction rules are deleted with the account", "user_merchant_rules" in main.USER_TABLES, main.USER_TABLES)
     check("2.8 every delete is scoped to the user",
           all(("eq", "user_id", USER_ID) in c[3] for c in deletes), deletes)
@@ -476,8 +590,9 @@ def test_delete_account():
 
 if __name__ == "__main__":
     for test in (test_config, test_crypto, test_cors, test_cron, test_removed_routes,
-                 test_health, test_health_rate_limit, test_model_info_needs_login, test_oauth,
-                 test_oauth_start_throttle, test_sync_limit, test_interrupted_jobs, test_delete_account):
+                 test_health, test_health_rate_limit, test_model_info_removed, test_ping_is_async, test_oauth,
+                 test_oauth_start_throttle, test_sync_limit, test_sync_already_active, test_backfill_route, test_cron_status,
+                 test_interrupted_jobs, test_delete_account):
         test()
     print(f"\n{len(FAILED)} check(s) failed" if FAILED else "\nALL API SECURITY CHECKS PASSED")
     sys.exit(1 if FAILED else 0)

@@ -627,6 +627,247 @@ begin
         'an empty window should report NULL, not a fabricated 0';
 end $$;
 
+-- ── WP4: sync counters and one active sync per user ─────────────────────────
+
+do $$
+declare
+    a constant uuid := '11111111-1111-1111-1111-111111111111';
+    b constant uuid := '22222222-2222-2222-2222-222222222222';
+begin
+    -- B already has a 'running' job from the seed: a second active one is refused.
+    begin
+        insert into public.sync_jobs (user_id, kind, status) values (b, 'manual', 'queued');
+        raise exception 'two active sync jobs were allowed for one user';
+    exception when unique_violation then null;
+    end;
+
+    -- A has only a finished job, so one active job is fine, a second is not,
+    -- and finished jobs never count.
+    insert into public.sync_jobs (user_id, kind, status) values (a, 'manual', 'queued');
+    begin
+        insert into public.sync_jobs (user_id, kind, status) values (a, 'scheduled', 'running');
+        raise exception 'a second active job was allowed for A';
+    exception when unique_violation then null;
+    end;
+    update public.sync_jobs set status = 'succeeded', finished_at = now()
+     where user_id = a and status = 'queued';
+    insert into public.sync_jobs (user_id, kind, status) values (a, 'manual', 'succeeded');
+    insert into public.sync_jobs (user_id, kind, status) values (a, 'manual', 'failed');
+
+    -- Counters start NULL (not recorded), never 0.
+    assert not exists (select 1 from public.sync_jobs
+                        where messages_listed is not null or messages_failed is not null
+                           or alerts_parsed is not null),
+        'counters must default to NULL';
+    update public.sync_jobs set messages_listed = 12, messages_failed = 1, alerts_parsed = 9
+     where id = (select id from public.sync_jobs where user_id = a order by created_at desc, id limit 1);
+end $$;
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', false);
+
+do $$
+begin
+    assert exists (select 1 from public.sync_jobs where alerts_parsed = 9),
+        'A should read the counters of their own jobs';
+    assert not exists (select 1 from public.sync_jobs where user_id <> auth.uid()),
+        'A can see another user''s sync jobs';
+    begin
+        update public.sync_jobs set alerts_parsed = 99;
+        raise exception 'authenticated can write sync counters';
+    exception when insufficient_privilege then null;
+    end;
+end $$;
+
+reset role;
+
+-- ── WP6: event log ──────────────────────────────────────────────────────────
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', false);
+
+do $$
+begin
+    perform public.log_event('dashboard_viewed', '{"months_available": 3, "has_unsure": true}');
+    perform public.log_event('review_opened');   -- props default to {}
+
+    begin
+        perform public.log_event('signup_completed');
+        raise exception 'an event name outside the allow-list was accepted';
+    exception when sqlstate '22023' then null;
+    end;
+    begin
+        perform public.log_event('dashboard_viewed', '[1,2]');
+        raise exception 'props that are not an object were accepted';
+    exception when sqlstate '22023' then null;
+    end;
+    begin
+        perform public.log_event('dashboard_viewed', jsonb_build_object('x', repeat('y', 2000)));
+        raise exception 'oversized props were accepted';
+    exception when sqlstate '22023' then null;
+    end;
+
+    -- The table itself is closed to the browser.
+    begin
+        perform 1 from public.app_events limit 1;
+        raise exception 'authenticated can read app_events';
+    exception when insufficient_privilege then null;
+    end;
+    begin
+        insert into public.app_events (user_id, name) values (auth.uid(), 'dashboard_viewed');
+        raise exception 'authenticated can insert into app_events directly';
+    exception when insufficient_privilege then null;
+    end;
+end $$;
+
+-- Signed out, and anon, cannot log.
+select set_config('request.jwt.claims', '{"role":"authenticated"}', false);
+do $$
+begin
+    begin
+        perform public.log_event('dashboard_viewed');
+        raise exception 'log_event worked without a user';
+    exception when sqlstate '28000' then null;
+    end;
+end $$;
+
+set role anon;
+select set_config('request.jwt.claims', '{"role":"anon"}', false);
+do $$
+begin
+    begin
+        perform public.log_event('dashboard_viewed');
+        raise exception 'anon can call log_event';
+    exception when insufficient_privilege then null;
+    end;
+end $$;
+
+reset role;
+
+do $$
+declare
+    a constant uuid := '11111111-1111-1111-1111-111111111111';
+begin
+    assert (select count(*) from public.app_events where user_id = a) = 2,
+        'exactly the two valid events should be stored';
+
+    -- The hourly cap: after 200 events in an hour more are dropped, without an error.
+    insert into public.app_events (user_id, name)
+    select a, 'month_changed' from generate_series(1, 198);
+    assert (select count(*) from public.app_events where user_id = a) = 200, 'seed should reach the cap';
+end $$;
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', false);
+select public.log_event('month_changed');
+reset role;
+
+do $$
+begin
+    assert (select count(*) from public.app_events
+             where user_id = '11111111-1111-1111-1111-111111111111') = 200,
+        'an event over the hourly cap should be dropped';
+end $$;
+
+-- ── WP9: backfill jobs and history_from ─────────────────────────────────────
+
+do $$
+declare
+    a constant uuid := '11111111-1111-1111-1111-111111111111';
+begin
+    insert into public.sync_jobs (user_id, kind, status) values (a, 'backfill', 'succeeded');
+    begin
+        insert into public.sync_jobs (user_id, kind, status) values (a, 'something-else', 'succeeded');
+        raise exception 'an unknown sync kind was accepted';
+    exception when check_violation then null;
+    end;
+
+    assert (select history_from from public.gmail_sync where user_id = a) is null,
+        'history_from should start as NULL (not recorded)';
+    update public.gmail_sync set history_from = '2026-08-31T18:30:00Z' where user_id = a;
+end $$;
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', false);
+
+do $$
+begin
+    assert (select history_from from public.gmail_sync) = '2026-08-31T18:30:00Z',
+        'A should read history_from of their own connection';
+    begin
+        update public.gmail_sync set history_from = null;
+        raise exception 'authenticated can write history_from';
+    exception when insufficient_privilege then null;
+    end;
+end $$;
+
+reset role;
+
+-- ── WP13a: a user can remove their own merchant rule ────────────────────────
+
+insert into public.user_merchant_rules (user_id, merchant_key, category) values
+    ('11111111-1111-1111-1111-111111111111', 'name:rule-removal-test', 'Food'),
+    ('22222222-2222-2222-2222-222222222222', 'name:rule-removal-test', 'Transport');
+
+set role authenticated;
+select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', false);
+
+do $$
+declare
+    r jsonb;
+    silver_before integer;
+begin
+    select count(*) into silver_before from public.silver_transactions;
+
+    r := public.delete_merchant_rule('name:rule-removal-test');
+    assert (r ->> 'deleted')::integer = 1, 'the rule should be deleted, got ' || r::text;
+    assert not exists (select 1 from public.user_merchant_rules where merchant_key = 'name:rule-removal-test'),
+        'A still sees the removed rule';
+
+    r := public.delete_merchant_rule('name:rule-removal-test');
+    assert (r ->> 'deleted')::integer = 0, 'removing it again should delete nothing';
+
+    r := public.delete_merchant_rule('name:does-not-exist');
+    assert (r ->> 'deleted')::integer = 0, 'an unknown key should delete nothing';
+
+    assert (select count(*) from public.silver_transactions) = silver_before,
+        'removing a rule must not change any payment';
+
+    begin
+        perform public.delete_merchant_rule('');
+        raise exception 'an empty key was accepted';
+    exception when sqlstate '22023' then null;
+    end;
+
+    begin
+        delete from public.user_merchant_rules;
+        raise exception 'authenticated can delete rules directly';
+    exception when insufficient_privilege then null;
+    end;
+end $$;
+
+set role anon;
+select set_config('request.jwt.claims', '{"role":"anon"}', false);
+do $$
+begin
+    begin
+        perform public.delete_merchant_rule('name:rule-removal-test');
+        raise exception 'anon can call delete_merchant_rule';
+    exception when insufficient_privilege then null;
+    end;
+end $$;
+
+reset role;
+
+do $$
+begin
+    -- B's rule with the same key is untouched by A's removal.
+    assert (select category from public.user_merchant_rules
+             where user_id = '22222222-2222-2222-2222-222222222222'
+               and merchant_key = 'name:rule-removal-test') = 'Transport',
+        'A removed another user''s rule';
+end $$;
+
 -- ── 2.8: deleting an account removes every row it owns, and only those ─────
 
 delete from auth.users where id = '11111111-1111-1111-1111-111111111111';
@@ -639,7 +880,7 @@ begin
     foreach t in array array['transactions', 'bronze_transactions', 'silver_transactions',
                              'gold_monthly_summary', 'gmail_sync', 'category_feedback',
                              'gmail_credentials', 'oauth_states', 'sync_jobs',
-                             'user_merchant_rules'] loop
+                             'user_merchant_rules', 'app_events'] loop
         execute format('select count(*) from public.%I where user_id = %L',
                        t, '11111111-1111-1111-1111-111111111111') into n;
         assert n = 0, format('%s still has %s rows for the deleted user', t, n);

@@ -21,7 +21,9 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     healthCheckPath: /ping
-    autoDeployTrigger: commit
+    # checksPass: deploy only when the GitHub CI checks on main pass (CI runs
+    # on every push, .github/workflows/ci.yml); `commit` would deploy untested code.
+    autoDeployTrigger: checksPass
     envVars:
       - key: SUPABASE_URL
         sync: false

@@ -3,6 +3,8 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { REVIEW_CHANGED } from '../lib/reviewQueue'
+import { SpendingContext } from '../lib/spendingContext'
+import { useSpending } from '../lib/useSpending'
 import AccountMenu from './AccountMenu'
 import SegmentedNav from './SegmentedNav'
 import styles from './AppLayout.module.css'
@@ -11,6 +13,14 @@ export default function AppLayout() {
   const { user } = useAuth()
   const { pathname } = useLocation()
   const reviewCount = useReviewCount(user.id, pathname)
+
+  // One spending read for every app page; a finished sync or a saved correction reloads it.
+  const spending = useSpending(user.id)
+  const { reload } = spending
+  useEffect(() => {
+    window.addEventListener(REVIEW_CHANGED, reload)
+    return () => window.removeEventListener(REVIEW_CHANGED, reload)
+  }, [reload])
 
   const pages = [
     { to: '/app', end: true, label: 'Dashboard' },
@@ -38,7 +48,9 @@ export default function AppLayout() {
       </header>
 
       <main id="main" className={`page ${styles.main}`}>
-        <Outlet />
+        <SpendingContext.Provider value={spending}>
+          <Outlet />
+        </SpendingContext.Provider>
       </main>
 
       <nav className={styles.tabs} aria-label="App">

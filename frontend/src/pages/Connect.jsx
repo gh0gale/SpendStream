@@ -1,16 +1,20 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { WakingNote } from '../components/States'
 import { apiFetch } from '../lib/api'
+import { useAuth } from '../lib/auth'
+import { track } from '../lib/track'
 import { useBackendAction } from '../lib/useBackendAction'
 import { usePageTitle } from '../lib/usePageTitle'
 import { CONTACT_EMAIL } from './legal'
 import styles from './Connect.module.css'
 
 export default function Connect() {
+  const { user } = useAuth()
   const [step, setStep] = useState(1)
   const [error, setError] = useState('')
   usePageTitle(step === 1 ? 'Connect Gmail' : 'Before Google')
+  useEffect(() => { track('connect_step_viewed', { step }) }, [step])
 
   // The backend returns Google's consent URL; the session token never goes in a URL.
   const start = useBackendAction(() => apiFetch('/auth/google/start', { method: 'POST' }))
@@ -19,6 +23,7 @@ export default function Connect() {
     setError('')
     try {
       const { url } = await start.run()
+      track('google_consent_started')
       window.location.assign(url)
     } catch (err) {
       setError(err.message)
@@ -34,6 +39,12 @@ export default function Connect() {
         {step === 1 ? (
           <>
             <h1>Connect the Gmail that gets your bank alerts</h1>
+            {user?.app_metadata?.provider === 'google' && (
+              <p className="muted">
+                Signing in with Google only proved who you are. This is a second, separate step that
+                lets SpendStream read your bank alerts.
+              </p>
+            )}
             <table className="ledger">
               <thead>
                 <tr><th scope="col" className="caption">Will read</th><th scope="col" className="caption">Will not read</th></tr>

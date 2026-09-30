@@ -2,4 +2,4 @@
 // by the owner on 2026-09-27. Also on the Google OAuth consent screen.
 export const OPERATOR = 'Yash Ghogale'
 export const CONTACT_EMAIL = 'info.ghogale@gmail.com'
-export const LEGAL_UPDATED = '27 September 2026'
+export const LEGAL_UPDATED = '1 October 2026'

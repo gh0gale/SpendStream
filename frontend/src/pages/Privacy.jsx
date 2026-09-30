@@ -33,7 +33,8 @@ export default function Privacy() {
           <li><strong>Bank alert emails:</strong> with your consent, read-only access to your Gmail, used only to search for bank debit alerts. From each debit alert we store the amount, date and time, the payee as written, the first 200 characters of the alert and the Gmail message id. Matching emails that are not debit alerts are discarded.</li>
           <li><strong>Derived data:</strong> a cleaned merchant name, a merchant identifier, whether the payee is a person, and a spending category for each payment.</li>
           <li><strong>Your corrections:</strong> the categories you choose, stored as rules that apply to your own payments.</li>
-          <li><strong>Connection and sync records:</strong> Google access and refresh tokens (the refresh token encrypted), and the time and outcome of each sync.</li>
+          <li><strong>Connection and sync records:</strong> Google access and refresh tokens (the refresh token encrypted), and the time, outcome and email counts of each sync.</li>
+          <li><strong>Usage records:</strong> which screens and actions you use (for example that you opened the dashboard or corrected a category), with counts such as how many months were shown, never merchant names, amounts or email text. They are kept for 90 days and used only to see whether the product works.</li>
         </ul>
         <p>
           The only purpose is to show you your own spending by category. We do not use your data for
@@ -78,7 +79,7 @@ export default function Privacy() {
       <Clause n="6" title="How long we keep it">
         <p>
           We keep your data while your account exists. When you delete your account, your payments,
-          rules, corrections, sync records, Gmail tokens and sign-in are deleted at once, and Google is
+          rules, corrections, sync records, usage records, Gmail tokens and sign-in are deleted at once, and Google is
           asked to revoke access. Copies may remain in the database provider's backups until those
           backups expire.
         </p>

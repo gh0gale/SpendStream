@@ -4,7 +4,7 @@
 .page { display: grid; gap: 20px; align-content: start; }
 .page > :global(.btn) { justify-self: start; }
 
-.filters { display: grid; grid-template-columns: repeat(2, minmax(0, 260px)); gap: 16px; padding: 16px 20px; }
+.filters { display: grid; grid-template-columns: repeat(3, minmax(0, 260px)); gap: 16px; padding: 16px 20px; }
 
 .table {
   background: var(--paper-raised); border: 1px solid var(--rule); border-radius: var(--r-card);
@@ -41,3 +41,5 @@
   .amount { grid-column: 3; grid-row: 1; padding: 0; }
   .category { grid-column: 2 / -1; grid-row: 2; }
 }
+
+.summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 16px; }

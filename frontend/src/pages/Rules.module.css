@@ -1,0 +1,19 @@
+/* Your rules: one row per merchant the user has sorted, same card as Needs review. */
+.page { display: grid; gap: 16px; align-content: start; max-width: 860px; }
+
+.list { list-style: none; background: var(--paper-raised); border: 1px solid var(--rule); border-radius: var(--r-card); padding: 0 20px; }
+.item {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px 16px;
+  padding: 12px 0; border-bottom: 1px solid var(--rule);
+}
+.item:last-child { border-bottom: 0; }
+.name { min-width: 0; }
+.merchant { font-family: var(--font-display); font-weight: 650; font-size: 19px; overflow-wrap: anywhere; }
+
+.empty { display: grid; gap: 8px; justify-items: start; padding: 28px; }
+.empty h2 { font-size: var(--t-h3); }
+
+@media (max-width: 640px) {
+  .item { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .item > :global(.btn-text) { grid-column: 2 / -1; justify-self: start; }
+}

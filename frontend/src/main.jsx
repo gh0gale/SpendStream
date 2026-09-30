@@ -1,7 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router'
-// The design system first, so page and component modules can build on it.
+// Fonts, then the design system, so page and component modules can build on it.
+import './fonts.css'
 import './index.css'
 import App from './App.jsx'
 import { AuthProvider } from './lib/auth'
