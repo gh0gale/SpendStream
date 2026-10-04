@@ -29,7 +29,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gmail_parser import decode_body, html_to_text, message_to_transaction, parse_bank_alert   # noqa: E402
 
 FIXTURE_DIR     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests", "fixtures", "gmail")
-SUPPORTED_BANKS = ("HDFC", "ICICI", "SBI", "Axis", "Kotak", "Yes Bank")   # the tasks.BANK_QUERY senders
+SUPPORTED_BANKS = ("HDFC", "ICICI", "SBI", "Axis", "Kotak", "Yes Bank", "IDFC FIRST", "IndusInd", "Federal", "Bank of Baroda",
+                   "PNB", "Canara", "Union Bank", "RBL", "AU Small Finance", "IDBI")   # the tasks.BANK_QUERY senders
 FAILED: list[str] = []
 
 

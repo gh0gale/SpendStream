@@ -31,7 +31,7 @@ const FIGURES = [
 
 const FAQ = [
   ['Which banks work?',
-    'HDFC alerts are checked against real mail. ICICI, SBI, Axis, Kotak and Yes Bank alerts are searched but not yet verified, so some may be missed. Credit card alerts are not verified yet.'],
+    'HDFC alerts are checked against real mail. Alerts from ICICI, SBI, Axis, Kotak, Yes Bank, IDFC FIRST, IndusInd, Federal, Bank of Baroda, PNB, Canara, Union Bank, RBL, AU Small Finance and IDBI are searched but not yet verified, so some may be missed. Credit card alerts are not verified yet.'],
   ['Does it track money coming in?',
     'No. Only debits are read. Credits, refunds and balance alerts are left out.'],
   ['What if a category is wrong?',
@@ -121,7 +121,7 @@ export default function Home() {
         <table className={`ledger ${styles.readTable}`}>
           <thead><tr><th scope="col" className="caption">We read</th><th scope="col" className="caption">We never read</th></tr></thead>
           <tbody>
-            <tr><td>Debit alerts from HDFC, ICICI, SBI, Axis, Kotak and Yes Bank</td><td>Any other email</td></tr>
+            <tr><td>Debit alerts from HDFC, ICICI, SBI, Axis, Kotak, Yes Bank and ten other banks</td><td>Any other email</td></tr>
             <tr><td>From each alert: amount, date, who was paid</td><td>Contacts, drafts, attachments</td></tr>
             <tr><td>Your own corrections</td><td>Your bank login or statements</td></tr>
           </tbody>

@@ -230,7 +230,7 @@ GitHub Actions ─► POST /cron/fetch-all (3 times a day), weekly retrain, dail
 **Not confirmed:** run results of the four GitHub Actions workflows (the repository is pushed, but run history and repository secrets could not be checked from here), the weekly retrain against a real project, and the daily backup (no backup secrets exist yet).
 
 **Limits:**
-- Only debit alerts are read; credits are skipped. Only HDFC alert formats have been checked against a real mailbox, although the Gmail query also names ICICI, SBI, Axis, Kotak and Yes Bank.
+- Only debit alerts are read; credits are skipped. Only HDFC alert formats have been checked against a real mailbox, although the Gmail query also names ICICI, SBI, Axis, Kotak, Yes Bank, IDFC FIRST, IndusInd, Federal, Bank of Baroda, PNB, Canara, Union Bank, RBL, AU Small Finance and IDBI.
 - The Gmail scope is restricted and the Google app is unverified, so it is limited to 100 users and shows Google's unverified-app warning.
 - The model is 87.8% accurate on 312 payments from one person's history; payments below 50% confidence stay uncategorised.
 - Sign-up is open (email/password or Google). No end-to-end test suite exists; the offline tests fake the database and Google.

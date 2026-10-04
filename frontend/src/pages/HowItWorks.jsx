@@ -13,6 +13,16 @@ const BANKS = [
   ['Kotak Mahindra Bank', 'Searched, not yet verified'],
   ['State Bank of India', 'Searched, not yet verified'],
   ['Yes Bank', 'Searched, not yet verified'],
+  ['IDFC FIRST Bank', 'Searched, not yet verified'],
+  ['IndusInd Bank', 'Searched, not yet verified'],
+  ['Federal Bank', 'Searched, not yet verified'],
+  ['Bank of Baroda', 'Searched, not yet verified'],
+  ['Punjab National Bank', 'Searched, not yet verified'],
+  ['Canara Bank', 'Searched, not yet verified'],
+  ['Union Bank of India', 'Searched, not yet verified'],
+  ['RBL Bank', 'Searched, not yet verified'],
+  ['AU Small Finance Bank', 'Searched, not yet verified'],
+  ['IDBI Bank', 'Searched, not yet verified'],
 ]
 
 export default function HowItWorks() {

@@ -51,7 +51,7 @@ export default function Connect() {
               </thead>
               <tbody>
                 <tr>
-                  <td>Emails from HDFC, ICICI, SBI, Axis, Kotak or Yes Bank that mention a debit</td>
+                  <td>Emails from HDFC, ICICI, SBI, Axis, Kotak, Yes Bank or ten other major Indian banks that mention a debit</td>
                   <td>Any other email</td>
                 </tr>
                 <tr>
