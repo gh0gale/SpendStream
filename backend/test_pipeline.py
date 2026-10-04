@@ -461,6 +461,9 @@ def test_gmail_query():
     check("3.2 the first-sync month follows India's calendar",
           q.endswith(f"after:{int(datetime(2026, 9, 30, 18, 30, tzinfo=timezone.utc).timestamp())}"), q)
     check("3.2 the query keeps the bank senders", q.startswith(tasks.BANK_QUERY), q)
+    # Gmail's from: matches whole words: "hdfc" misses a bare alerts@hdfcbank.bank.in
+    # sender (a Rs.360 alert was never ingested, 2026-10-02).
+    check("3.2 the query matches HDFC's bare-address sender", "hdfcbank" in tasks.BANK_QUERY, tasks.BANK_QUERY)
 
 
 def test_list_pagination():

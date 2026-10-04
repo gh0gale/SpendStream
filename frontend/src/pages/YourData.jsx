@@ -5,7 +5,7 @@ import { CONTACT_EMAIL, OPERATOR } from './legal'
 import styles from './Reading.module.css'
 
 // Must match BANK_QUERY in backend/tasks.py.
-const GMAIL_QUERY = 'from:(hdfc OR icici OR sbi OR axis OR kotak OR yesbank) (debited OR spent OR txn OR transaction)'
+const GMAIL_QUERY = 'from:(hdfc OR hdfcbank OR icici OR icicibank OR sbi OR axis OR axisbank OR kotak OR yesbank) (debited OR spent OR txn OR transaction)'
 
 const KEPT = [
   ['Each debit alert', 'Amount, date and time, the payee as the bank wrote it, the first 200 characters of the alert, and the Gmail message id (so the same email is never stored twice).'],

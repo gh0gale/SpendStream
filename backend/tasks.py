@@ -47,7 +47,10 @@ GOOGLE_CLIENT_SECRET = config.GOOGLE_CLIENT_SECRET
 CRON_MAX_WORKERS     = config.CRON_MAX_WORKERS
 
 GMAIL_API     = "https://gmail.googleapis.com/gmail/v1/users/me"
-BANK_QUERY    = ("from:(hdfc OR icici OR sbi OR axis OR kotak OR yesbank) "
+# Gmail's from: matches whole words, not prefixes. "hdfc" matches only a display name such as
+# "HDFC Bank InstaAlerts"; HDFC also sends from a bare alerts@hdfcbank.bank.in, which needs
+# "hdfcbank". The bare domain words are verified for HDFC only; the other banks' are unchecked.
+BANK_QUERY    = ("from:(hdfc OR hdfcbank OR icici OR icicibank OR sbi OR axis OR axisbank OR kotak OR yesbank) "
                  "(debited OR spent OR txn OR transaction)")
 PAGE_SIZE     = 100                  # message ids per list request (Gmail allows up to 500)
 MAX_PAGES     = 50                   # 5,000 messages per sync; hitting it is logged, never silent
