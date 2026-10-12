@@ -130,7 +130,9 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-@app.get("/ping")
+# HEAD too: uptime monitors (UptimeRobot) send HEAD, and FastAPI answers 405 to
+# HEAD on a GET-only route.
+@app.api_route("/ping", methods=["GET", "HEAD"])
 async def ping():
     """
     The process is up. Checks nothing else. Deliberately `async def`: it runs
@@ -140,7 +142,7 @@ async def ping():
     return {"status": "alive"}
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health(request: Request):
     """
     The process can reach the database: one tiny read. For uptime monitors
@@ -259,7 +261,9 @@ def auth_google_start(request: Request):
         "response_type": "code",
         "scope":         GMAIL_SCOPE,
         "access_type":   "offline",
-        "prompt":        "consent",
+        # Always show Google's account chooser: the Gmail to connect is the one
+        # the bank sends alerts to, which may not be the signed-in account.
+        "prompt":        "select_account consent",
         "state":         state,
     }
     return {"url": "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)}

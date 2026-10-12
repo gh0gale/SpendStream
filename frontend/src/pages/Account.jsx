@@ -4,6 +4,7 @@ import { ErrorNotice, SkeletonBlock, WakingNote } from '../components/States'
 import { apiFetch } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { formatDateTime } from '../lib/format'
+import { setGuideHidden } from '../lib/onboarding'
 import { supabase } from '../lib/supabase'
 import { useBackendAction } from '../lib/useBackendAction'
 import { useGmailSync } from '../lib/useGmailSync'
@@ -39,6 +40,20 @@ export default function Account() {
           <div className={`${styles.body} ${styles.row}`}>
             <p>Every category you chose is remembered for that merchant.</p>
             <Link to="/app/rules" className="btn">See your rules</Link>
+          </div>
+        </section>
+
+        <section className={styles.section} aria-labelledby="guide-h">
+          <h2 id="guide-h" className="caption">Getting started</h2>
+          <div className={`${styles.body} ${styles.row}`}>
+            <p>The dashboard's guide to using SpendStream.</p>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => { setGuideHidden(user.id, false); navigate('/app') }}
+            >
+              Show the guide
+            </button>
           </div>
         </section>
 

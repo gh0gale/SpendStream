@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
+import { WhichGmail } from '../components/Onboarding'
 import { WakingNote } from '../components/States'
 import { apiFetch } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -39,6 +40,7 @@ export default function Connect() {
         {step === 1 ? (
           <>
             <h1>Connect the Gmail that gets your bank alerts</h1>
+            <WhichGmail />
             {user?.app_metadata?.provider === 'google' && (
               <p className="muted">
                 Signing in with Google only proved who you are. This is a second, separate step that
@@ -77,8 +79,9 @@ export default function Connect() {
               That is because SpendStream is a small independent project that Google has not reviewed
               (it is limited to 100 users), not because of anything wrong with your account.
             </p>
-            <p>On Google's warning screen:</p>
+            <p>On Google's screens:</p>
             <ol className={styles.steps}>
+              <li>Pick the Gmail account your bank sends alerts to.</li>
               <li>Choose <strong>Advanced</strong>.</li>
               <li>Choose the link to go to SpendStream.</li>
               <li>Allow read-only access to your email.</li>

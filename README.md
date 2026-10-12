@@ -166,8 +166,8 @@ The browser reads its own rows from Supabase directly; these are the backend rou
 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| GET | `/ping` | none | Process is up (Render's health check) |
-| GET | `/health` | none, per-IP limited | One database read; 503 if it fails (uptime monitors, `sync.yml`) |
+| GET, HEAD | `/ping` | none | Process is up (Render's health check) |
+| GET, HEAD | `/health` | none, per-IP limited | One database read; 503 if it fails (uptime monitors, `sync.yml`) |
 | POST | `/auth/google/start` | JWT | Returns Google's consent URL; 5 attempts per 10 minutes |
 | GET | `/auth/callback` | one-time `state` | Stores tokens (refresh token Fernet-encrypted), redirects to `FRONTEND_URL/?gmail=<connected\|denied\|expired\|error>` |
 | GET | `/fetch-gmail` | JWT | Starts a manual sync (202 with a `job_id`); 409 not connected, reconnect needed or a sync already running, 429 within 10 minutes of the last one |

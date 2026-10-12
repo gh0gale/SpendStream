@@ -273,6 +273,8 @@ def test_health():
     r = client.get("/health")
     check("Phase 7 /health reports ok when the database answers, without a login",
           r.status_code == 200 and r.json() == {"status": "ok", "database": "ok"}, r.text)
+    check("Phase 7 /health answers HEAD (UptimeRobot sends HEAD; 405 read as down)",
+          client.head("/health").status_code == 200)
 
     class Broken(FakeDB):
         def table(self, name):
@@ -317,6 +319,8 @@ def test_ping_is_async():
           inspect.iscoroutinefunction(main.ping))
     r = client.get("/ping")
     check("/ping answers alive", r.status_code == 200 and r.json() == {"status": "alive"}, r.text)
+    check("/ping answers HEAD (UptimeRobot sends HEAD; 405 read as down)",
+          client.head("/ping").status_code == 200)
 
 
 def test_oauth_start_throttle():
@@ -352,6 +356,8 @@ def test_oauth():
     check("2.4 the consent URL carries that state", q.get("state") == [state], q)
     check("2.4 the consent URL carries the registered redirect URI", q.get("redirect_uri") == [CALLBACK], q)
     check("2.4 the consent URL does not contain the session token", "good-token" not in url, url)
+    check("2.4 the consent URL always asks which Google account",
+          "select_account" in (q.get("prompt") or [""])[0].split(), q)
 
     future = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
     past   = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()

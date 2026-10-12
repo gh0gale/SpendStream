@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import CategoryBreakdown from '../components/CategoryBreakdown'
 import MonthCard from '../components/MonthCard'
+import { GettingStarted, Welcome } from '../components/Onboarding'
 import { ErrorNotice, SkeletonBlock, SkeletonRows } from '../components/States'
 import SyncLine from '../components/SyncLine'
 import { useAuth } from '../lib/auth'
 import {
   formatDay, formatINR, formatINRShort, formatMonth, formatMonthShort, monthRange, plural, todayISO,
 } from '../lib/format'
+import { isGuideHidden, setGuideHidden } from '../lib/onboarding'
 import { notifyReviewChanged } from '../lib/reviewQueue'
 import { supabase } from '../lib/supabase'
 import { track } from '../lib/track'
@@ -89,6 +91,9 @@ export default function Dashboard() {
     try { sessionStorage.setItem(MONTH_KEY, key) } catch { /* storage blocked: selection lasts this visit only */ }
   }
 
+  const [guideHidden, setHidden] = useState(() => isGuideHidden(user.id))
+  const hideGuide = () => { setGuideHidden(user.id, true); setHidden(true) }
+
   const firstSync = sync.sync?.state === 'running' && spending.status === 'ready' && months.length === 0
   const result = gmailResult && GMAIL_RESULTS[gmailResult]
 
@@ -103,7 +108,9 @@ export default function Dashboard() {
 
       <GmailNotice gmail={sync.gmail} onRetry={sync.reloadGmail} />
 
-      {firstSync ? (
+      {sync.gmail.status === 'none' ? (
+        <Welcome />
+      ) : firstSync ? (
         <section className={styles.firstSync}>
           <h1 className="display">Reading <span className="mark">this month</span>.</h1>
           <SyncLine sync={sync} />
@@ -121,6 +128,12 @@ export default function Dashboard() {
             </header>
             {sync.gmail.status !== 'none' && <div className={styles.syncCard}><SyncLine sync={sync} /></div>}
           </div>
+          {!guideHidden && current && (
+            <GettingStarted
+              reviewCount={months.reduce((n, m) => n + m.unsure.count, 0)}
+              onHide={hideGuide}
+            />
+          )}
           <Spending
             spending={spending}
             current={current}
@@ -139,14 +152,6 @@ export default function Dashboard() {
 function GmailNotice({ gmail, onRetry }) {
   if (gmail.status === 'error') {
     return <ErrorNotice title="Couldn't check your Gmail connection." detail={gmail.detail} onRetry={onRetry} />
-  }
-  if (gmail.status === 'none') {
-    return (
-      <div className="notice">
-        <p className="notice-title">Gmail is not connected. Connect Gmail first.</p>
-        <Link to="/connect" className="btn btn-primary">Connect Gmail</Link>
-      </div>
-    )
   }
   if (gmail.status === 'reconnect') {
     return (
@@ -184,7 +189,9 @@ function Spending({ spending, current, previous, index, onMonth, months, userId 
         <h2>No payments yet</h2>
         <p className="muted">
           No bank alerts found this month. SpendStream currently reads HDFC alerts reliably.
-          Check this is the Gmail that receives them. <Link to="/how-it-works">How it works</Link>
+          Check this is the Gmail registered with your bank: search it for <strong>debited</strong>.
+          If your bank emails a different address, <Link to="/connect">connect that Gmail</Link> instead.{' '}
+          <Link to="/how-it-works">How it works</Link>
         </p>
         <NothingFound userId={userId} />
       </section>

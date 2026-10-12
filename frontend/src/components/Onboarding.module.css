@@ -1,0 +1,29 @@
+/* Welcome screen (Gmail not connected) and the dashboard's getting-started guide. */
+.welcome { display: grid; gap: 28px; max-width: 760px; padding-top: 8px; }
+
+.steps { list-style: none; display: grid; gap: 20px; }
+.steps li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: start; max-width: none; }
+.steps h2 { font-size: var(--t-h3); margin-bottom: 4px; }
+.num {
+  font: 700 40px / 1 var(--font-display); color: var(--ink);
+  min-width: 1.2ch; padding-top: 2px;
+}
+
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
+.actions a:not(:global(.btn)) { display: inline-flex; align-items: center; min-height: var(--target); }
+
+.tips {
+  list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 32px;
+}
+.tips li { display: grid; gap: 4px; align-content: start; max-width: none; }
+.tips h3 { font-size: var(--t-body); font-weight: 700; }
+
+@media (max-width: 700px) {
+  .tips { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 480px) {
+  .actions :global(.btn-primary) { width: 100%; }
+  .num { font-size: 32px; }
+}
